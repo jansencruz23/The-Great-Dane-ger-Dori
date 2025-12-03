@@ -45,7 +45,7 @@ class AppConstants {
   // Gemini API Settings
   static String get geminiApiKey => dotenv.env['GEMINI_API_KEY'] ?? '';
   static const String geminiApiUrl =
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
   // Storage Paths
   static const String faceImagesPath = 'face_images';

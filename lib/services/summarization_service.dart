@@ -10,68 +10,98 @@ class SummarizationService {
     required String personName,
     required String relationship,
   }) async {
+    print('DEBUG: generateSummary called for $personName');
+    print('DEBUG: Transcript length: ${transcript.length} characters');
+    
     if (transcript.isEmpty) {
+      print('DEBUG: Transcript is empty, returning default message');
       return 'You met with $personName today';
     }
 
     try {
+      print('DEBUG: Attempting to call Gemini API for summary...');
       final prompt = _buildSummaryPrompt(transcript, personName, relationship);
       final summary = await _callGeminiAPI(prompt);
+      print('DEBUG: Successfully got summary from Gemini');
       return summary;
     } catch (e) {
-      print('Error generating summary: $e');
+      print('ERROR: Failed to generate summary from Gemini: $e');
+      print('DEBUG: Using fallback summary');
       return _generateFallbackSummary(transcript, personName);
     }
   }
 
   // Generate daily recap from multiple interactions
   Future<String> generateDailyRecap(List<ActivityLogModel> activities) async {
+    print('DEBUG: generateDailyRecap called with ${activities.length} activities');
+    
     if (activities.isEmpty) {
+      print('DEBUG: No activities found, returning quiet day message');
       return 'You had a quiet day today with no recorded interactions.';
     }
 
+    // Log each activity's summary
+    for (var i = 0; i < activities.length; i++) {
+      print('DEBUG: Activity $i - ${activities[i].personName}: ${activities[i].summary}');
+    }
+
     try {
+      print('DEBUG: Building daily recap prompt...');
       final prompt = _buildDailyRecapPrompt(activities);
       print('DEBUG: Prompt sent to Gemini:\n$prompt');
+      print('DEBUG: Calling Gemini API for daily recap...');
       final recap = await _callGeminiAPI(prompt);
-      print('DEBUG: Gemini response: $recap');
+      print('DEBUG: Successfully received Gemini response: $recap');
       return recap;
     } catch (e) {
-      print('Error generating daily recap: $e');
+      print('ERROR: Failed to generate daily recap from Gemini: $e');
+      print('DEBUG: Using fallback daily recap');
       return _generateFallbackDailyRecap(activities);
     }
   }
 
   // Call Gemini API
   Future<String> _callGeminiAPI(String prompt) async {
+    print('DEBUG: Calling Gemini API...');
+    print('DEBUG: API Key present: ${AppConstants.geminiApiKey.isNotEmpty}');
+    
     final url = '${AppConstants.geminiApiUrl}?key=${AppConstants.geminiApiKey}';
 
-    final response = await http.post(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'content': [
-          {
-            'parts': [
-              {'text': prompt},
-            ],
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'contents': [
+            {
+              'parts': [
+                {'text': prompt},
+              ],
+            },
+          ],
+          'generationConfig': {
+            'temperature': 0.6,
+            'maxOutputTokens': 256,
+            'topP': 0.9,
+            'topK': 40,
           },
-        ],
-        'generationConfig': {
-          'temperature': 0.6,
-          'maxOutputTokens': 256,
-          'topP': 0.9,
-          'topK': 40,
-        },
-      }),
-    );
+        }),
+      );
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final text = data['candidates'][0]['content']['parts'][0]['text'];
-      return text.trim();
-    } else {
-      throw 'API request failed: ${response.statusCode}';
+      print('DEBUG: Gemini API response status: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        print('DEBUG: Gemini API response body: ${response.body}');
+        final text = data['candidates'][0]['content']['parts'][0]['text'];
+        return text.trim();
+      } else {
+        print('DEBUG: Gemini API error response: ${response.body}');
+        throw 'API request failed: ${response.statusCode} - ${response.body}';
+      }
+    } catch (e) {
+      print('DEBUG: Exception calling Gemini API: $e');
+      rethrow;
     }
   }
 
@@ -99,15 +129,21 @@ class SummarizationService {
 
   // Build daily recap prompt
   String _buildDailyRecapPrompt(List<ActivityLogModel> activities) {
+    print('DEBUG: Building prompt from ${activities.length} activities');
+    
     final interactionsList = activities
         .map((activity) {
           final time = activity.timestamp.hour > 12
               ? '${activity.timestamp.hour - 12}:${activity.timestamp.minute.toString().padLeft(2, '0')} PM'
               : '${activity.timestamp.hour}:${activity.timestamp.minute.toString().padLeft(2, '0')} AM';
 
-          return '$time - ${activity.personName}: ${activity.summary ?? 'You had a nice chat'}';
+          final summaryText = activity.summary ?? 'You had a nice chat';
+          print('DEBUG: Adding to prompt - $time with ${activity.personName}: $summaryText');
+          return '$time - ${activity.personName}: $summaryText';
         })
         .join('\n');
+
+    print('DEBUG: Complete interactions list:\n$interactionsList');
 
     return '''You are a warm, empathetic assistant helping someone with memory challenges.
 

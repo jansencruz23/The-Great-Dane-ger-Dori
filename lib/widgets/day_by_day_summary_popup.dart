@@ -48,13 +48,16 @@ class _DayByDaySummaryPopupState extends State<DayByDaySummaryPopup> {
       }
 
       // 2. Generate summary using Gemini
+      print('DEBUG: Calling generateDailyRecap with ${logs.length} logs...');
       final recap = await _summarizationService.generateDailyRecap(logs);
+      print('DEBUG: Received recap from service: $recap');
 
       if (mounted) {
         setState(() {
           _summary = recap;
           _isLoading = false;
         });
+        print('DEBUG: Updated UI with recap: $_summary');
       }
     } catch (e, stackTrace) {
       if (mounted) {

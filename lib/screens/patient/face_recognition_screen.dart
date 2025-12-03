@@ -62,6 +62,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isStreamActive = false;
   bool _isMemoryArchiveVisible = false;
   bool _isDailySummaryVisible = false;
+  bool _isMenuExpanded = false;
+  bool _sosTriggered = false;
+  DateTime? _sosTriggeredTime;
 
   Timer? _processingTimer;
 
@@ -367,6 +370,11 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           setState(() {
             _transcription = text;
           });
+          
+          // Check for SOS keyword
+          if (text.toLowerCase().contains('help')) {
+            _triggerSOS();
+          }
         },
       );
     } catch (e) {
@@ -789,34 +797,14 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
+                    // Temporary SOS test button
                     IconButton(
-                      icon: Icon(
-                        _isMemoryArchiveVisible
-                            ? Icons.close
-                            : Icons.history_edu,
-                        color: Colors.white,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _isMemoryArchiveVisible = !_isMemoryArchiveVisible;
-                          if (_isMemoryArchiveVisible) _isDailySummaryVisible = false;
-                        });
-                      },
+                      icon: const Icon(Icons.sos, color: Colors.red),
+                      onPressed: _triggerSOS,
+                      tooltip: 'Test SOS',
                     ),
-                    IconButton(
-                      icon: Icon(
-                        _isDailySummaryVisible
-                            ? Icons.close
-                            : Icons.summarize,
-                        color: Colors.white,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _isDailySummaryVisible = !_isDailySummaryVisible;
-                          if (_isDailySummaryVisible) _isMemoryArchiveVisible = false;
-                        });
-                      },
-                    ),
+                    // Animated speed dial menu
+                    _buildSpeedDialMenu(),
                     if (_isRecording)
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -910,6 +898,153 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         if (_enrollmentMode == EnrollmentMode.capturingAngles)
           _buildEnrollmentCaptureOverlay(),
         if (_enrollmentMode == EnrollmentMode.saving) _buildSavingOverlay(),
+        
+        // SOS Alert Overlay
+        if (_sosTriggered) _buildSOSOverlay(),
+      ],
+    );
+  }
+
+  void _triggerSOS() {
+    if (_sosTriggered) return; // Prevent multiple triggers
+    
+    setState(() {
+      _sosTriggered = true;
+      _sosTriggeredTime = DateTime.now();
+    });
+    
+    print('SOS TRIGGERED! Help keyword detected.');
+    
+    // Auto-dismiss after 10 seconds
+    Future.delayed(const Duration(seconds: 10), () {
+      if (mounted && _sosTriggered) {
+        _dismissSOS();
+      }
+    });
+  }
+
+  void _dismissSOS() {
+    setState(() {
+      _sosTriggered = false;
+      _sosTriggeredTime = null;
+    });
+  }
+
+  Widget _buildSpeedDialMenu() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Memory Archive button (appears when expanded)
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: _isMenuExpanded ? 48 : 0,
+          child: _isMenuExpanded
+              ? GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _isMemoryArchiveVisible = !_isMemoryArchiveVisible;
+                      _isDailySummaryVisible = false;
+                      _isMenuExpanded = false;
+                    });
+                  },
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: _isMemoryArchiveVisible
+                          ? Colors.white.withOpacity(0.3)
+                          : Colors.white.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.history_edu,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+        if (_isMenuExpanded) const SizedBox(width: 8),
+        
+        // Daily Recap button (appears when expanded)
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: _isMenuExpanded ? 48 : 0,
+          child: _isMenuExpanded
+              ? GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _isDailySummaryVisible = !_isDailySummaryVisible;
+                      _isMemoryArchiveVisible = false;
+                      _isMenuExpanded = false;
+                    });
+                  },
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: _isDailySummaryVisible
+                          ? Colors.white.withOpacity(0.3)
+                          : Colors.white.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.5),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.summarize,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+        if (_isMenuExpanded) const SizedBox(width: 8),
+        
+        // Main toggle button
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              if (_isMemoryArchiveVisible || _isDailySummaryVisible) {
+                // Close any open popup
+                _isMemoryArchiveVisible = false;
+                _isDailySummaryVisible = false;
+                _isMenuExpanded = false;
+              } else {
+                // Toggle menu expansion
+                _isMenuExpanded = !_isMenuExpanded;
+              }
+            });
+          },
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: (_isMemoryArchiveVisible || _isDailySummaryVisible)
+                  ? Colors.red.withOpacity(0.8)
+                  : Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white,
+                width: 2,
+              ),
+            ),
+            child: Icon(
+              (_isMemoryArchiveVisible || _isDailySummaryVisible)
+                  ? Icons.close
+                  : (_isMenuExpanded ? Icons.menu_open : Icons.menu),
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1154,6 +1289,100 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
               style: TextStyle(color: Colors.white, fontSize: 18),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSOSOverlay() {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        child: Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.red.withOpacity(0.5),
+                blurRadius: 20,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              // Pulsing warning icon
+              TweenAnimationBuilder(
+                tween: Tween<double>(begin: 0.8, end: 1.2),
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.easeInOut,
+                builder: (context, double scale, child) {
+                  return Transform.scale(
+                    scale: scale,
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.warning_rounded,
+                        size: 30,
+                        color: Colors.red,
+                      ),
+                    ),
+                  );
+                },
+                onEnd: () {
+                  // Repeat animation
+                  if (mounted && _sosTriggered) {
+                    setState(() {});
+                  }
+                },
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'SOS ALERT',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Help needed',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _dismissSOS,
+                icon: const Icon(
+                  Icons.close,
+                  color: Colors.white,
+                  size: 28,
+                ),
+                tooltip: 'Dismiss',
+              ),
+            ],
+          ),
         ),
       ),
     );
