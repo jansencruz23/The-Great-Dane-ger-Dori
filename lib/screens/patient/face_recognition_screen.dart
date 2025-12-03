@@ -98,9 +98,18 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
       // Load known faces
       final userProvider = Provider.of<UserProvider>(context, listen: false);
-      _knownFaces = await _databaseService.getKnownFaces(
-        userProvider.currentUser!.uid,
-      );
+      final patientId = userProvider.currentUser!.uid;
+      print('DEBUG: Loading known faces for patient ID: $patientId');
+
+      _knownFaces = await _databaseService.getKnownFaces(patientId);
+      print('DEBUG: Loaded ${_knownFaces.length} known faces');
+
+      for (final face in _knownFaces) {
+        print(
+          'DEBUG: - ${face.name} (${face.getAllEmbeddings().length} embeddings)',
+        );
+      }
+
       _faceRecognitionService.updateKnownFaces(_knownFaces);
 
       // Initialize camera
