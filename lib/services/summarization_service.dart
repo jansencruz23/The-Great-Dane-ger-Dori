@@ -124,4 +124,121 @@ class SummarizationService {
       return 'Today was a social day! You spent time with $peopleList. You had ${activities.length} converstations in total.';
     }
   }
+
+  // Generate day-by-day summary from activity logs
+  Future<String> generateDayByDaySummary(
+    Map<String, List<ActivityLogModel>> activitiesByDate,
+  ) async {
+    if (activitiesByDate.isEmpty) {
+      return 'No activities recorded yet. Your daily summaries will appear here.';
+    }
+
+    try {
+      final prompt = _buildDayByDayPrompt(activitiesByDate);
+      final summary = await _callGeminiAPI(prompt);
+      return summary;
+    } catch (e) {
+      print('Error generating day-by-day summary: $e');
+      return _generateFallbackDayByDay(activitiesByDate);
+    }
+  }
+
+  // Build day-by-day prompt for Gemini
+  String _buildDayByDayPrompt(
+    Map<String, List<ActivityLogModel>> activitiesByDate,
+  ) {
+    final buffer = StringBuffer();
+    buffer.writeln(
+      'You are a warm, empathetic assistant helping someone with memory challenges.',
+    );
+    buffer.writeln(
+      'Create a day-by-day summary of their recent activities. Make it warm, personal, and easy to understand.',
+    );
+    buffer.writeln();
+
+    // Sort dates in descending order (most recent first)
+    final sortedDates = activitiesByDate.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    for (final dateStr in sortedDates) {
+      final activities = activitiesByDate[dateStr]!;
+      final date = DateTime.parse(dateStr);
+      final dayName = _getDayName(date);
+
+      buffer.writeln('$dayName ($dateStr):');
+
+      for (final activity in activities) {
+        final time = _formatTime(activity.timestamp);
+        buffer.writeln(
+          '  - $time with ${activity.personName}: ${activity.summary ?? "Had a conversation"}',
+        );
+      }
+      buffer.writeln();
+    }
+
+    buffer.writeln('Guidelines:');
+    buffer.writeln('- Create a warm, story-like summary for each day');
+    buffer.writeln('- Use simple, clear language');
+    buffer.writeln('- Focus on positive moments and connections');
+    buffer.writeln('- Keep each day summary to 2-3 sentences');
+    buffer.writeln('- Start each day with the day name (e.g., "Today", "Yesterday")');
+    buffer.writeln();
+    buffer.writeln('Day-by-day summary:');
+
+    return buffer.toString();
+  }
+
+  // Fallback day-by-day summary if API fails
+  String _generateFallbackDayByDay(
+    Map<String, List<ActivityLogModel>> activitiesByDate,
+  ) {
+    final buffer = StringBuffer();
+    final sortedDates = activitiesByDate.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    for (final dateStr in sortedDates) {
+      final activities = activitiesByDate[dateStr]!;
+      final date = DateTime.parse(dateStr);
+      final dayName = _getDayName(date);
+      final uniquePeople =
+          activities.map((a) => a.personName).toSet().toList();
+
+      buffer.writeln('$dayName:');
+      if (uniquePeople.length == 1) {
+        buffer.writeln(
+          'You spent time with ${uniquePeople[0]} (${activities.length} ${activities.length == 1 ? 'conversation' : 'conversations'}).',
+        );
+      } else {
+        final peopleList = uniquePeople.join(', ');
+        buffer.writeln(
+          'You had ${activities.length} conversations with $peopleList.',
+        );
+      }
+      buffer.writeln();
+    }
+
+    return buffer.toString();
+  }
+
+  // Helper: Get day name relative to today
+  String _getDayName(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDate = DateTime(date.year, date.month, date.day);
+    final difference = today.difference(targetDate).inDays;
+
+    if (difference == 0) return 'Today';
+    if (difference == 1) return 'Yesterday';
+    if (difference < 7) return '${difference} days ago';
+
+    return '${date.month}/${date.day}/${date.year}';
+  }
+
+  // Helper: Format time
+  String _formatTime(DateTime timestamp) {
+    final hour = timestamp.hour > 12 ? timestamp.hour - 12 : timestamp.hour;
+    final minute = timestamp.minute.toString().padLeft(2, '0');
+    final period = timestamp.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
+  }
 }

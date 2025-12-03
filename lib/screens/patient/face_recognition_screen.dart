@@ -20,6 +20,8 @@ import '../../models/activity_log_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
 import '../../widgets/face_detection_painter.dart';
+import '../../widgets/day_by_day_summary_widget.dart';
+
 
 enum FacePose { center, left, right, up, down }
 
@@ -83,6 +85,12 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isListeningForName = false;
   bool _isListeningForRelationship = false;
   String _voiceInputBuffer = '';
+
+  // Day-by-day summary state
+  bool _showDayByDaySummary = false;
+  String _dayByDaySummary = '';
+  bool _isLoadingSummary = false;
+
 
   @override
   void initState() {
@@ -353,11 +361,17 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     if (!_isRecording || _activeRecognition == null) return;
 
     try {
-      // Stop speech recognition
-      final finalTranscript = await _speechService.stopListening();
+      String finalTranscript = '';
+      try {
+        // Stop speech recognition
+        finalTranscript = await _speechService.stopListening();
+      } catch (e) {
+        print('Warning: Error stopping speech recognition: $e');
+        // Continue to save log even if speech service fails
+      }
 
-      if (finalTranscript.isNotEmpty && _interactionStartTime != null) {
-        // Generate summary
+      if (_interactionStartTime != null) {
+        // Generate summary (service handles empty transcripts)
         final summary = await _summarizationService.generateSummary(
           transcript: finalTranscript,
           personName: _activeRecognition!.name,
@@ -377,10 +391,17 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           duration: DateTime.now().difference(_interactionStartTime!),
         );
 
+        print('DEBUG: Creating activity log for ${log.personName}');
         await _databaseService.createActivityLog(log);
+        print('DEBUG: Activity log created successfully');
+        
+        // Refresh the day-by-day summary if it's visible
+        if (_showDayByDaySummary) {
+          _loadDayByDaySummary();
+        }
       }
     } catch (e) {
-      print('Error stopping recording: $e');
+      print('Error saving activity log: $e');
     } finally {
       setState(() {
         _isRecording = false;
@@ -655,6 +676,58 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     }
   }
 
+  // ==================== DAY-BY-DAY SUMMARY ====================
+
+  Future<void> _toggleDayByDaySummary() async {
+    setState(() {
+      _showDayByDaySummary = !_showDayByDaySummary;
+    });
+
+    // Load summary if showing and not already loaded
+    if (_showDayByDaySummary && _dayByDaySummary.isEmpty) {
+      await _loadDayByDaySummary();
+    }
+  }
+
+  Future<void> _loadDayByDaySummary() async {
+    setState(() {
+      _isLoadingSummary = true;
+    });
+
+    try {
+      final userProvider = Provider.of<UserProvider>(context, listen: false);
+      final patientId = userProvider.currentUser!.uid;
+
+      // Fetch activity logs grouped by date (last 7 days)
+      final logsByDate = await _databaseService.getActivityLogsByDate(
+        patientId,
+        daysBack: 7,
+      );
+
+      // Generate summary using Gemini
+      final summary = await _summarizationService.generateDayByDaySummary(
+        logsByDate,
+      );
+
+      if (mounted) {
+        setState(() {
+          _dayByDaySummary = summary;
+          _isLoadingSummary = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading day-by-day summary: $e');
+      if (mounted) {
+        setState(() {
+          _dayByDaySummary =
+              'Unable to load summary at this time. Please try again later.';
+          _isLoadingSummary = false;
+        });
+      }
+    }
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -746,6 +819,53 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
+                    // Day-by-day summary toggle button (centered)
+                    Expanded(
+                      child: Center(
+                        child: GestureDetector(
+                          onTap: _toggleDayByDaySummary,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: _showDayByDaySummary
+                                    ? [
+                                        Colors.white.withValues(alpha: 0.3),
+                                        Colors.white.withValues(alpha: 0.2),
+                                      ]
+                                    : [
+                                        Colors.black.withValues(alpha: 0.5),
+                                        Colors.black.withValues(alpha: 0.3),
+                                      ],
+                              ),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.4),
+                                width: 2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  blurRadius: 10,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              _showDayByDaySummary
+                                  ? Icons.close_rounded
+                                  : Icons.calendar_today_rounded,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                     if (_isRecording)
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -770,7 +890,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                             ),
                           ],
                         ),
-                      ),
+                      )
+                    else
+                      const SizedBox(width: 48), // Spacer for alignment
                   ],
                 ),
 
@@ -830,6 +952,14 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
             ),
           ),
         ),
+
+        // Day-by-day summary widget
+        if (_showDayByDaySummary)
+          DayByDaySummaryWidget(
+            summary: _dayByDaySummary,
+            isLoading: _isLoadingSummary,
+            onRefresh: _loadDayByDaySummary,
+          ),
 
         // Enrollment UI Overlays
         if (_enrollmentMode == EnrollmentMode.collectingName)

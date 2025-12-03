@@ -306,6 +306,45 @@ class DatabaseService {
     }
   }
 
+  // Get activity logs grouped by date for day-by-day summaries
+  Future<Map<String, List<ActivityLogModel>>> getActivityLogsByDate(
+    String patientId, {
+    int daysBack = 7,
+  }) async {
+    try {
+      final now = DateTime.now();
+      final startDate = DateTime(now.year, now.month, now.day)
+          .subtract(Duration(days: daysBack - 1));
+
+      final logs = await getActivityLogs(
+        patientId,
+        startDate: startDate,
+      );
+
+      // Group logs by date
+      final Map<String, List<ActivityLogModel>> logsByDate = {};
+
+      for (final log in logs) {
+        final dateKey = _getDateKey(log.timestamp);
+        if (!logsByDate.containsKey(dateKey)) {
+          logsByDate[dateKey] = [];
+        }
+        logsByDate[dateKey]!.add(log);
+      }
+
+      return logsByDate;
+    } catch (e) {
+      print('Error fetching activity logs by date: $e');
+      return {};
+    }
+  }
+
+  // Helper: Get date key in YYYY-MM-DD format
+  String _getDateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+
   // ==================== STORAGE OPERATIONS ====================
 
   Future<String> uploadFaceImage(String patientId, File imageFile) async {
