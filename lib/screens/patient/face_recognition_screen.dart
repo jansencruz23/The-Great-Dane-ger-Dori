@@ -71,6 +71,12 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   DateTime? _unknownFaceFirstSeen;
   static const _unknownFaceDebounceTime = Duration(seconds: 3);
 
+  // Recognition persistence (to prevent flickering on jitter)
+  DateTime? _lastRecognitionTime;
+  KnownFaceModel? _lastRecognizedFace;
+  Face? _lastDetectedFace; // Store the actual Face object
+  static const _recognitionPersistenceDuration = Duration(seconds: 2);
+
   // Enrollment data
   String _enrollmentName = '';
   String _enrollmentRelationship = '';
@@ -238,8 +244,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       } catch (e) {
         print('Error processing frame: $e');
       } finally {
-        // Add delay to throttle processing (process ~10 frames per second)
-        await Future.delayed(const Duration(milliseconds: 100));
+        // Add delay to throttle processing (reduced to 50% for smoother camera)
+        await Future.delayed(const Duration(milliseconds: 200));
         _isProcessing = false;
       }
     });
@@ -257,9 +263,21 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         .where((face) => face != null)
         .toList();
 
+    final now = DateTime.now();
+
     // Handle recognized faces
     if (recognizedFaces.isNotEmpty) {
       final recognizedFace = recognizedFaces.first;
+
+      // Find the Face key corresponding to this recognition
+      final faceEntry = results.entries.firstWhere(
+        (entry) => entry.value == recognizedFace,
+      );
+
+      // Update last recognition time, face, and Face object
+      _lastRecognitionTime = now;
+      _lastRecognizedFace = recognizedFace;
+      _lastDetectedFace = faceEntry.key; // Store the actual Face object
 
       // Clear unknown face tracking since we recognized someone
       _unknownFace = null;
@@ -289,14 +307,43 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       return;
     }
 
+    // No recognized faces - check if we should persist previous recognition
+    if (_lastRecognitionTime != null &&
+        _lastRecognizedFace != null &&
+        _lastDetectedFace != null &&
+        now.difference(_lastRecognitionTime!) <
+            _recognitionPersistenceDuration) {
+      // Keep displaying the last recognized face for a bit longer
+      // This prevents flickering when detection temporarily fails
+      print(
+        'DEBUG: Persisting recognition for ${_lastRecognizedFace!.name} despite temporary detection loss',
+      );
+
+      // Keep the recognized face in detected faces to maintain display
+      if (_detectedFaces.isEmpty ||
+          !_detectedFaces.containsValue(_lastRecognizedFace)) {
+        setState(() {
+          // Reuse the last detected Face object to keep the overlay visible
+          _detectedFaces = {_lastDetectedFace!: _lastRecognizedFace};
+        });
+      }
+      return;
+    }
+
+    // Recognition persistence expired, clear it
+    if (_lastRecognitionTime != null) {
+      _lastRecognitionTime = null;
+      _lastRecognizedFace = null;
+      _lastDetectedFace = null;
+      print('DEBUG: Recognition persistence expired');
+    }
+
     // Handle unknown faces
     final unknownFaceEntry = results.entries
         .where((entry) => entry.value == null)
         .firstOrNull;
 
     if (unknownFaceEntry != null) {
-      final now = DateTime.now();
-
       // If this is a new unknown face, start tracking
       if (_unknownFace == null || _unknownFaceFirstSeen == null) {
         _unknownFace = unknownFaceEntry.key;
@@ -313,7 +360,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         await _promptEnrollment(unknownFaceEntry.key);
       }
     } else {
-      // No faces detected, clear unknown face tracking
+      // No faces detected at all, clear unknown face tracking
       _unknownFace = null;
       _unknownFaceEmbedding = null;
       _unknownFaceFirstSeen = null;

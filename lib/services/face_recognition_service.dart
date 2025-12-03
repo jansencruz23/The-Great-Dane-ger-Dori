@@ -106,7 +106,7 @@ class FaceRecognitionService {
     }
   }
 
-  // Extract face embedding from detected face
+  // Extract face embedding from detected face (Legacy - for file images)
   Future<List<double>?> extractFaceEmbedding(img.Image image, Face face) async {
     if (!_isInitialized || _interpreter == null) {
       return null;
@@ -117,6 +117,37 @@ class FaceRecognitionService {
       final faceImage = _cropFace(image, face);
       if (faceImage == null) return null;
 
+      return _runInference(faceImage);
+    } catch (e) {
+      print('Face embedding extraction failed: $e');
+      return null;
+    }
+  }
+
+  // Optimized: Extract face embedding directly from YUV CameraImage
+  Future<List<double>?> extractFaceEmbeddingFromYUV(
+    CameraImage cameraImage,
+    Face face,
+  ) async {
+    if (!_isInitialized || _interpreter == null) {
+      return null;
+    }
+
+    try {
+      // Crop and convert only the face region directly from YUV
+      final faceImage = _cropFaceFromYUV(cameraImage, face);
+      if (faceImage == null) return null;
+
+      return _runInference(faceImage);
+    } catch (e) {
+      print('Face embedding extraction from YUV failed: $e');
+      return null;
+    }
+  }
+
+  // Helper: Run inference on a cropped face image
+  Future<List<double>?> _runInference(img.Image faceImage) async {
+    try {
       // Resize to model input size (112x112 for MobileFaceNet)
       final resized = img.copyResize(faceImage, width: 112, height: 112);
 
@@ -129,26 +160,13 @@ class FaceRecognitionService {
       // Run inference
       _interpreter!.run(input, output);
 
-      // Use only the first batch output (both batches contain the same image)
-      // Averaging identical duplicates provides no benefit and may degrade quality
+      // Use only the first batch output
       final embedding = List<double>.from(output[0]);
-
-      // Debug: Check embedding stats
-      final embeddingSum = embedding.reduce((a, b) => a + b);
-      final embeddingMean = embeddingSum / embedding.length;
-      print(
-        'DEBUG: Embedding stats - Length: ${embedding.length}, Mean: ${embeddingMean.toStringAsFixed(4)}, First 5 values: ${embedding.take(5).toList()}',
-      );
-
       final normalized = Helpers.normalizeEmbedding(embedding);
-      final normalizedSum = normalized.reduce((a, b) => a + b);
-      print(
-        'DEBUG: Normalized embedding sum: ${normalizedSum.toStringAsFixed(4)}',
-      );
 
       return normalized;
     } catch (e) {
-      print('Face embedding extraction failed: $e');
+      print('Inference failed: $e');
       return null;
     }
   }
@@ -219,16 +237,12 @@ class FaceRecognitionService {
       final faces = await detectFaces(cameraImage);
       if (faces.isEmpty) return {};
 
-      // Convert camera image to img.Image
-      final image = _convertToImage(cameraImage);
-      if (image == null) return {};
-
       // Process each face
       final results = <Face, KnownFaceModel?>{};
 
       for (final face in faces) {
-        // Extract embedding
-        final embedding = await extractFaceEmbedding(image, face);
+        // Extract embedding directly from YUV buffer (optimized)
+        final embedding = await extractFaceEmbeddingFromYUV(cameraImage, face);
 
         if (embedding != null) {
           // Recognize face
@@ -363,6 +377,75 @@ class FaceRecognitionService {
       return img.copyCrop(image, x: x, y: y, width: width, height: height);
     } catch (e) {
       print('Error cropping face: $e');
+      return null;
+    }
+  }
+
+  // Optimized: Crop and convert ONLY the face region from YUV buffer
+  img.Image? _cropFaceFromYUV(CameraImage image, Face face) {
+    try {
+      // Only support YUV420 for now (standard Android format)
+      if (image.format.group != ImageFormatGroup.yuv420) {
+        return _convertToImage(image); // Fallback to full conversion if not YUV
+      }
+
+      final int width = image.width;
+      final int height = image.height;
+
+      // Get face bounding box with padding
+      final rect = face.boundingBox;
+      final padding = 20;
+
+      // Calculate crop coordinates (clamped to image bounds)
+      final int left = (rect.left - padding).toInt().clamp(0, width - 1);
+      final int top = (rect.top - padding).toInt().clamp(0, height - 1);
+      final int right = (rect.right + padding).toInt().clamp(0, width - 1);
+      final int bottom = (rect.bottom + padding).toInt().clamp(0, height - 1);
+
+      final int cropWidth = right - left;
+      final int cropHeight = bottom - top;
+
+      if (cropWidth <= 0 || cropHeight <= 0) return null;
+
+      final yPlane = image.planes[0];
+      final uPlane = image.planes[1];
+      final vPlane = image.planes[2];
+
+      final img.Image faceImage = img.Image(
+        width: cropWidth,
+        height: cropHeight,
+      );
+
+      // Iterate ONLY over the cropped region
+      for (int y = 0; y < cropHeight; y++) {
+        final int sourceY = top + y;
+
+        for (int x = 0; x < cropWidth; x++) {
+          final int sourceX = left + x;
+
+          final int yIndex = sourceY * yPlane.bytesPerRow + sourceX;
+          final int uvIndex =
+              (sourceY ~/ 2) * uPlane.bytesPerRow + (sourceX ~/ 2);
+
+          final int yValue = yPlane.bytes[yIndex];
+          final int uValue = uPlane.bytes[uvIndex];
+          final int vValue = vPlane.bytes[uvIndex];
+
+          // YUV to RGB conversion
+          final r = (yValue + 1.370705 * (vValue - 128)).clamp(0, 255).toInt();
+          final g =
+              (yValue - 0.337633 * (uValue - 128) - 0.698001 * (vValue - 128))
+                  .clamp(0, 255)
+                  .toInt();
+          final b = (yValue + 1.732446 * (uValue - 128)).clamp(0, 255).toInt();
+
+          faceImage.setPixelRgba(x, y, r, g, b, 255);
+        }
+      }
+
+      return faceImage;
+    } catch (e) {
+      print('Error cropping face from YUV: $e');
       return null;
     }
   }
