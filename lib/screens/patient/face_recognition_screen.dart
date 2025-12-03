@@ -65,6 +65,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isMenuExpanded = false;
   bool _sosTriggered = false;
   DateTime? _sosTriggeredTime;
+  bool _isSOSListening = false;
 
   Timer? _processingTimer;
 
@@ -175,6 +176,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
         // Start processing frames
         _startFrameProcessing();
+        
+        // Start continuous SOS listening
+        _startSOSListening();
       }
     } catch (e) {
       if (mounted) {
@@ -903,6 +907,29 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         if (_sosTriggered) _buildSOSOverlay(),
       ],
     );
+  }
+
+  Future<void> _startSOSListening() async {
+    if (_isSOSListening) return;
+    
+    setState(() => _isSOSListening = true);
+    print('DEBUG: Starting continuous SOS listening...');
+    
+    try {
+      await _speechService.startListening(
+        onResult: (text) {
+          print('DEBUG: SOS listener heard: $text');
+          // Check for SOS keyword
+          if (text.toLowerCase().contains('help')) {
+            print('DEBUG: "help" detected by SOS listener!');
+            _triggerSOS();
+          }
+        },
+      );
+    } catch (e) {
+      print('ERROR: Failed to start SOS listening: $e');
+      setState(() => _isSOSListening = false);
+    }
   }
 
   void _triggerSOS() {

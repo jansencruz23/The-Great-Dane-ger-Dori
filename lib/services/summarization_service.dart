@@ -64,8 +64,11 @@ class SummarizationService {
   Future<String> _callGeminiAPI(String prompt) async {
     print('DEBUG: Calling Gemini API...');
     print('DEBUG: API Key present: ${AppConstants.geminiApiKey.isNotEmpty}');
+    print('DEBUG: API Key value: ${AppConstants.geminiApiKey}');
+    print('DEBUG: Base URL: ${AppConstants.geminiApiUrl}');
     
     final url = '${AppConstants.geminiApiUrl}?key=${AppConstants.geminiApiKey}';
+    print('DEBUG: Complete URL: $url');
 
     try {
       final response = await http.post(
