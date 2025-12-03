@@ -316,7 +316,16 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       children: [
         // Camera preview
         Transform.scale(
-          scale: deviceRatio / cameraRatio,
+          scale: () {
+            var scale = 1.0;
+            if (size.height > size.width) {
+              scale = deviceRatio * cameraRatio;
+            } else {
+              scale = deviceRatio / cameraRatio;
+            }
+            if (scale < 1) scale = 1 / scale;
+            return scale;
+          }(),
           child: Center(child: CameraPreview(_cameraController!)),
         ),
 
