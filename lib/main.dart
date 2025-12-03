@@ -1,3 +1,4 @@
+import 'package:dori/providers/user_provider.dart';
 import 'package:dori/utils/constants.dart' show AppColors;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
