@@ -15,9 +15,9 @@ class FaceRecognitionService {
   Interpreter? _interpreter;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableContours: false, // Disabled for performance
+      enableContours: false,
       enableClassification: false,
-      enableLandmarks: true, // Disabled for performance
+      enableLandmarks: true,
       enableTracking: true,
       performanceMode: FaceDetectorMode.accurate,
     ),
@@ -178,52 +178,71 @@ class FaceRecognitionService {
       return null;
     }
 
-    // print('DEBUG: Comparing against ${_knownFaces.length} known faces');
+    print('DEBUG: Comparing against ${_knownFaces.length} known faces');
 
-    KnownFaceModel? bestMatch;
-    double bestSimilarity = 0.0;
-    // double bestDistance = double.infinity;
-    // int bestEmbeddingIndex = -1;
+    // Calculate similarities for all known faces
+    final matches = <({KnownFaceModel face, double similarity})>[];
 
     for (final knownFace in _knownFaces) {
-      // Compare against ALL stored embeddings for this person
-      final allEmbeddings = knownFace.getAllEmbeddings();
+      final template = _averageEmbeddings(knownFace.getAllEmbeddings());
+      final similarity = Helpers.cosineSimilarity(embedding, template);
+      matches.add((face: knownFace, similarity: similarity));
 
-      for (int i = 0; i < allEmbeddings.length; i++) {
-        final similarity = Helpers.cosineSimilarity(
-          embedding,
-          allEmbeddings[i],
-        );
+      // Print each comparison
+      print(
+        'DEBUG:   ${knownFace.name}: similarity = ${similarity.toStringAsFixed(4)}',
+      );
+    }
 
-        final distance = Helpers.euclideanDistance(embedding, allEmbeddings[i]);
+    // Sort by similarity (descending)
+    matches.sort((a, b) => b.similarity.compareTo(a.similarity));
 
-        // print(
-        //   'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
-        // );
+    // Top-1 match must exceed threshold
+    final best = matches.first;
 
-        // Use both metrics: high similarity AND low distance for stricter matching
-        if (similarity >= AppConstants.faceRecognitionThreshold &&
-            distance <= 0.7 &&
-            similarity > bestSimilarity) {
-          bestSimilarity = similarity;
-          // bestDistance = distance;
-          bestMatch = knownFace;
-          // bestEmbeddingIndex = i;
+    print(
+      'DEBUG: Best match: ${best.face.name} with similarity = ${best.similarity.toStringAsFixed(4)}',
+    );
+    print('DEBUG: Threshold: ${AppConstants.faceRecognitionThreshold}');
+
+    // AND the gap between best and second-best should be significant
+    if (best.similarity >= AppConstants.faceRecognitionThreshold) {
+      // Optional: Require margin between top-2 candidates
+      if (matches.length > 1) {
+        final secondBest = matches[1];
+        final margin = best.similarity - secondBest.similarity;
+
+        // Require at least 0.1 difference (tune this)
+        if (margin >= 0.025) {
+          return best.face;
         }
+      } else {
+        return best.face;
       }
     }
 
-    if (bestMatch != null) {
-      // print(
-      //   'DEBUG: Best match: ${bestMatch.name} with similarity=$bestSimilarity, distance=$bestDistance (from angle $bestEmbeddingIndex)',
-      // );
-    } else {
-      // print(
-      //   'DEBUG: No match found. Best similarity was: $bestSimilarity, distance: $bestDistance',
-      // );
+    return null;
+  }
+
+  // Helper to average embeddings
+  List<double> _averageEmbeddings(List<List<double>> embeddings) {
+    if (embeddings.isEmpty) return [];
+
+    final avgEmbedding = List<double>.filled(embeddings[0].length, 0.0);
+
+    for (final emb in embeddings) {
+      for (int i = 0; i < emb.length; i++) {
+        avgEmbedding[i] += emb[i];
+      }
     }
 
-    return bestMatch;
+    // Average
+    for (int i = 0; i < avgEmbedding.length; i++) {
+      avgEmbedding[i] /= embeddings.length;
+    }
+
+    // Re-normalize after averaging
+    return Helpers.normalizeEmbedding(avgEmbedding);
   }
 
   // Process camera frame for recognition
