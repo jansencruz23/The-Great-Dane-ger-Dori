@@ -31,9 +31,9 @@ class FaceRecognitionService {
   // Initialize TensorFlow Lite model
   Future<void> initialize() async {
     try {
-      // Load MobileFaceNet model for face recognition
+      // Load ArcFace model for face recognition (512-dim embeddings)
       _interpreter = await Interpreter.fromAsset(
-        'assets/models/MobileFaceNet.tflite',
+        'assets/models/arc_face.tflite',
       );
 
       // Print model input/output shapes for debugging
@@ -117,14 +117,14 @@ class FaceRecognitionService {
       final faceImage = _cropFace(image, face);
       if (faceImage == null) return null;
 
-      // Resize to model input size (112x112 for MobileFaceNet)
+      // Resize to model input size (112x112 for ArcFace)
       final resized = img.copyResize(faceImage, width: 112, height: 112);
 
       // Prepare input tensor (batch size 2)
       final input = _imageToByteList(resized);
 
-      // Prepare output tensor (192-dimensional embedding, batch size 2)
-      final output = List.filled(2 * 192, 0.0).reshape([2, 192]);
+      // Prepare output tensor (512-dimensional embedding, batch size 2)
+      final output = List.filled(2 * 512, 0.0).reshape([2, 512]);
 
       // Run inference
       _interpreter!.run(input, output);
@@ -180,13 +180,13 @@ class FaceRecognitionService {
         final distance = Helpers.euclideanDistance(embedding, allEmbeddings[i]);
 
         print(
-          'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
+          'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (threshold: distance<=0.9)',
         );
 
-        // Use both metrics: high similarity AND low distance for stricter matching
-        if (similarity >= AppConstants.faceRecognitionThreshold &&
-            distance <= 0.7 &&
-            similarity > bestSimilarity) {
+        // Use Euclidean distance as PRIMARY metric for ArcFace
+        // ArcFace embeddings are L2-normalized, making distance more reliable
+        // Typical values: same person = 0.6-0.9, different people = 1.0+
+        if (distance <= 0.9 && distance < bestDistance) {
           bestSimilarity = similarity;
           bestDistance = distance;
           bestMatch = knownFace;

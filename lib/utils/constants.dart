@@ -14,9 +14,9 @@ class AppColors {
 }
 
 class AppConstants {
-  // Face Recognition Thresholds
+  // Face Recognition Thresholds (ArcFace model)
   static const double faceRecognitionThreshold =
-      0.85; // Temporarily lowered for testing
+      0.35; // ArcFace: 0.3-0.4 typical
   static const double faceDetectionConfidence = 0.2;
   static const int maxFacesPerFrame = 5;
 

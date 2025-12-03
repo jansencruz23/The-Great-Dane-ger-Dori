@@ -12,6 +12,8 @@
 .swiftpm/
 migrate_working_dir/
 
+arc_face.tflite
+
 # IntelliJ related
 *.iml
 *.ipr
