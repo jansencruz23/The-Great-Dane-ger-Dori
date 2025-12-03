@@ -1,159 +1,143 @@
-import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'dart:math';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class Helpers {
-  // Date formatting
-  static String formatDate(DateTime date) {
-    return DateFormat('MMM dd, yyyy').format(date);
-  }
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  static String formatDateTime(DateTime date) {
-    return DateFormat('MMM dd, yyyy HH:mm').format(date);
-  }
+  // Get current user
+  User? get currentUser => _auth.currentUser;
 
-  static String formatTime(DateTime date) {
-    return DateFormat('HH:mm').format(date);
-  }
+  // Stream of auth state changes
+  Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  static String getRelativeTime(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-
-    if (difference.inSeconds < 60) {
-      return 'Just now';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
-    } else {
-      return formatDate(date);
+  // Sign in with email and password
+  Future<User?> signInWithEmail(String email, String password) async {
+    try {
+      final userCredential = await _auth.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+      return userCredential.user;
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'An unexpected error occurred';
     }
   }
 
-  // Vector operations for face embeddings
-  static double cosineSimilarity(List<double> a, List<double> b) {
-    if (a.length != b.length) {
-      throw ArgumentError('Vectors must have the same length');
+  Future<User?> createUserWithEmail(String email, String password) async {
+    try {
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+      return userCredential.user;
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'An unexpected error occurred';
     }
-
-    double dotProduct = 0.0;
-    double normA = 0.0;
-    double normB = 0.0;
-
-    for (int i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-
-    normA = sqrt(normA);
-    normB = sqrt(normB);
-
-    if (normA == 0.0 || normB == 0.0) {
-      return 0.0;
-    }
-
-    return dotProduct / (normA * normB);
   }
 
-  static double euclideanDistance(List<double> a, List<double> b) {
-    if (a.length != b.length) {
-      throw ArgumentError('Vectors must have the same length');
+  // Sign out
+  Future<void> signOut() async {
+    try {
+      await _auth.signOut();
+    } catch (e) {
+      throw 'Error signing out';
     }
+  }
 
-    double sum = 0.0;
-    for (int i = 0; i < a.length; i++) {
-      sum += pow(a[i] - b[i], 2);
+  // Send password reset email
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim());
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'An unexpected error occurred';
     }
-
-    return sqrt(sum);
   }
 
-  // Snackbar helpers
-  static void showSnackBar(
-    BuildContext context,
-    String message, {
-    bool isError = false,
-  }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  // Loading dialog
-  static void showLoadingDialog(BuildContext context, String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(width: 24),
-              Text(message),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static void hideLoadingDialog(BuildContext context) {
-    Navigator.of(context).pop();
-  }
-
-  // Normalize embedding vector
-  static List<double> normalizeEmbedding(List<double> embedding) {
-    double norm = 0.0;
-    for (var value in embedding) {
-      norm += value * value;
+  // Delete user account
+  Future<void> deleteAccount() async {
+    try {
+      await _auth.currentUser?.delete();
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'An unexpected error occurred';
     }
-    norm = sqrt(norm);
-
-    if (norm == 0.0) return embedding;
-
-    return embedding.map((value) => value / norm).toList();
   }
 
-  // Generate random color for avatar
-  static Color generateColorFromString(String str) {
-    int hash = 0;
-    for (int i = 0; i < str.length; i++) {
-      hash = str.codeUnitAt(i) + ((hash << 5) - hash);
+  // Handle Firebase Auth exceptions
+  String _handleAuthException(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+        return 'No user found with this email';
+      case 'wrong-password':
+        return 'Wrong password provided';
+      case 'email-already-in-use':
+        return 'An account already exists with this email';
+      case 'invalid-email':
+        return 'Invalid email address';
+      case 'weak-password':
+        return 'Password is too weak';
+      case 'user-disabled':
+        return 'This account has been disabled';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later';
+      case 'operation-not-allowed':
+        return 'This operation is not allowed';
+      case 'network-request-failed':
+        return 'Network error. Please check your connection';
+      default:
+        return 'Authentication error: ${e.message}';
     }
-
-    final r = (hash & 0xFF0000) >> 16;
-    final g = (hash & 0x00FF00) >> 8;
-    final b = hash & 0x0000FF;
-
-    return Color.fromRGBO(r, g, b, 1.0);
   }
 
-  // Validate email
-  static bool isValidEmail(String email) {
-    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
-  }
+  // Re-authenticate user (needed for sensitive operations)
+  Future<void> reauthenticate(String password) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null || user.email == null) {
+        throw 'No user logged in';
+      }
 
-  // Generate initials from name
-  static String getInitials(String name) {
-    if (name.isEmpty) return '?';
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: password,
+      );
 
-    final parts = name.split(' ');
-    if (parts.length == 1) {
-      return parts[0][0].toUpperCase();
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'An unexpected error occurred';
     }
+  }
 
-    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  // Update password
+  Future<void> updatePassword(String newPassword) async {
+    try {
+      await _auth.currentUser?.updatePassword(newPassword);
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'An unexpected error occurred';
+    }
+  }
+
+  // Check if user is verified
+  bool get isEmailVerified => _auth.currentUser?.emailVerified ?? false;
+
+  // Send email verification
+  Future<void> sendEmailVerification() async {
+    try {
+      await _auth.currentUser?.sendEmailVerification();
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw 'An unexpected error occurred';
+    }
   }
 }
