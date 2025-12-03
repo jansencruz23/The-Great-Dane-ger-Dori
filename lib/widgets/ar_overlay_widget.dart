@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import '../models/known_face_model.dart';
 import '../models/activity_log_model.dart';
@@ -180,7 +180,7 @@ class ArOverlayWidget extends StatelessWidget {
             const Divider(color: Colors.white30, height: 1),
             const SizedBox(height: 8),
             const Text(
-              'Recent Interactions:',
+              'Previous Interaction:',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: AppConstants.arSubtextSize - 1,
@@ -188,7 +188,7 @@ class ArOverlayWidget extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            ...recentLogs.take(3).map((log) {
+            ...recentLogs.take(1).map((log) {
               return Container(
                 margin: const EdgeInsets.only(bottom: 6),
                 padding: const EdgeInsets.all(8),

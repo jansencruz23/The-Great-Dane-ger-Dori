@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
@@ -15,9 +15,9 @@ class FaceRecognitionService {
   Interpreter? _interpreter;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableContours: true,
+      enableContours: false, // Disabled for performance
       enableClassification: false,
-      enableLandmarks: true,
+      enableLandmarks: false, // Disabled for performance
       enableTracking: true,
       performanceMode: FaceDetectorMode.fast,
     ),

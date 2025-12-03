@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
@@ -53,6 +53,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
   List<KnownFaceModel> _knownFaces = [];
   Map<Face, KnownFaceModel?> _detectedFaces = {};
+  Map<String, List<ActivityLogModel>> _faceActivityLogs =
+      {}; // personId -> recent logs
   KnownFaceModel? _activeRecognition;
   String _transcription = '';
   DateTime? _interactionStartTime;
@@ -236,8 +238,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       } catch (e) {
         print('Error processing frame: $e');
       } finally {
-        // Add delay to throttle processing (process ~2 frames per second)
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Add delay to throttle processing (process ~10 frames per second)
+        await Future.delayed(const Duration(milliseconds: 100));
         _isProcessing = false;
       }
     });
@@ -263,6 +265,19 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       _unknownFace = null;
       _unknownFaceEmbedding = null;
       _unknownFaceFirstSeen = null;
+
+      // Fetch activity logs for this person if not already cached
+      if (!_faceActivityLogs.containsKey(recognizedFace?.id)) {
+        final userProvider = Provider.of<UserProvider>(context, listen: false);
+        final logs = await _databaseService.getPersonActivityLogs(
+          userProvider.currentUser!.uid,
+          recognizedFace!.id,
+          limit: 1, // Only fetch 1 previous summary
+        );
+        setState(() {
+          _faceActivityLogs[recognizedFace.id] = logs;
+        });
+      }
 
       // Start recording if not already recording
       if (!_isRecording || _activeRecognition?.id != recognizedFace?.id) {
@@ -711,6 +726,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                 _cameraController!.value.previewSize!.height,
                 _cameraController!.value.previewSize!.width,
               ),
+              recentLogs: _faceActivityLogs[entry.value!.id] ?? [],
             );
           }
           return const SizedBox.shrink();

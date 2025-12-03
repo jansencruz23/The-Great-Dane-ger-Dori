@@ -44,9 +44,10 @@ class AppConstants {
   static const String activityLogsCollection = 'activity_logs';
 
   // Gemini API Settings
-  static const String geminiApiKey = 'YOUR_GEMINI_API_KEY_HERE';
+  // Note: Load .env file in main.dart using: await dotenv.load(fileName: ".env");
+  static String geminiApiKey = ''; // Will be loaded from .env
   static const String geminiApiUrl =
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
   // Storage Paths
   static const String faceImagesPath = 'face_images';
