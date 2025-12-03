@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dori/services/database_service.dart';
 import 'package:dori/services/speech_service.dart';
 import 'package:dori/services/summarization_service.dart';
 import 'package:dori/widgets/ar_overlay_widget.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_gemini/flutter_gemini.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -20,6 +23,8 @@ import '../../models/activity_log_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
 import '../../widgets/face_detection_painter.dart';
+import '../../widgets/day_by_day_summary_widget.dart';
+
 
 enum FacePose { center, left, right, up, down }
 
@@ -90,6 +95,15 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isListeningForName = false;
   bool _isListeningForRelationship = false;
   String _voiceInputBuffer = '';
+
+  // Day-by-day summary state
+  bool _showDayByDaySummary = false;
+  String _dayByDaySummary = '';
+  bool _isLoadingSummary = false;
+
+  // Floating action menu state
+  bool _isMenuExpanded = false;
+
 
   @override
   void initState() {
@@ -345,6 +359,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         .firstOrNull;
 
     if (unknownFaceEntry != null) {
+      final now = DateTime.now();
+
       // If this is a new unknown face, start tracking
       if (_unknownFace == null || _unknownFaceFirstSeen == null) {
         _unknownFace = unknownFaceEntry.key;
@@ -401,11 +417,17 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     if (!_isRecording || _activeRecognition == null) return;
 
     try {
-      // Stop speech recognition
-      final finalTranscript = await _speechService.stopListening();
+      String finalTranscript = '';
+      try {
+        // Stop speech recognition
+        finalTranscript = await _speechService.stopListening();
+      } catch (e) {
+        print('Warning: Error stopping speech recognition: $e');
+        // Continue to save log even if speech service fails
+      }
 
-      if (finalTranscript.isNotEmpty && _interactionStartTime != null) {
-        // Generate summary
+      if (_interactionStartTime != null) {
+        // Generate summary (service handles empty transcripts)
         final summary = await _summarizationService.generateSummary(
           transcript: finalTranscript,
           personName: _activeRecognition!.name,
@@ -425,10 +447,17 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           duration: DateTime.now().difference(_interactionStartTime!),
         );
 
+        print('DEBUG: Creating activity log for ${log.personName}');
         await _databaseService.createActivityLog(log);
+        print('DEBUG: Activity log created successfully');
+
+        // Refresh the day-by-day summary if it's visible
+        if (_showDayByDaySummary) {
+          _loadDayByDaySummary();
+        }
       }
     } catch (e) {
-      print('Error stopping recording: $e');
+      print('Error saving activity log: $e');
     } finally {
       setState(() {
         _isRecording = false;
@@ -706,6 +735,188 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     }
   }
 
+  // ==================== DAY-BY-DAY SUMMARY ====================
+
+  Future<void> _toggleDayByDaySummary() async {
+    setState(() {
+      _showDayByDaySummary = !_showDayByDaySummary;
+    });
+
+    // Load summary if showing and not already loaded
+    if (_showDayByDaySummary && _dayByDaySummary.isEmpty) {
+      await _loadDayByDaySummary();
+    }
+  }
+
+  Future<void> _loadDayByDaySummary() async {
+    setState(() {
+      _isLoadingSummary = true;
+    });
+
+    try {
+      final userProvider = Provider.of<UserProvider>(context, listen: false);
+      final patientId = userProvider.currentUser!.uid;
+
+      print('\n\n');
+      print('🔍🔍🔍 FETCHING ALL SUMMARIES 🔍🔍🔍');
+      print('═══════════════════════════════════════════════════════');
+      print('PATIENT ID: $patientId');
+      print('═══════════════════════════════════════════════════════\n');
+
+      // Fetch ALL summaries for this patient (simple query, no complex filtering)
+      final summaries = await _databaseService.getAllSummariesForPatient(patientId);
+
+      print('\n📊 TOTAL SUMMARIES FOUND: ${summaries.length}');
+      print('═══════════════════════════════════════════════════════\n');
+
+      if (summaries.isEmpty) {
+        print('⚠️  NO SUMMARIES FOUND FOR THIS PATIENT!');
+        print('   Patient ID: $patientId');
+        print('   Check if activity logs exist in Firebase');
+        print('═══════════════════════════════════════════════════════\n');
+
+        if (mounted) {
+          setState(() {
+            _dayByDaySummary = 'No activities recorded yet. Your daily summaries will appear here.';
+            _isLoadingSummary = false;
+          });
+        }
+        return;
+      }
+
+      // Print all summaries
+      print('📋 ALL SUMMARY VALUES:');
+      print('─────────────────────────────────────────────────────');
+      for (var i = 0; i < summaries.length; i++) {
+        final summary = summaries[i];
+        print('\n${i + 1}. ${summary['personName']} (${summary['timestamp']})');
+        print('   Summary: ${summary['summary']}');
+        print('   Transcript: ${summary['rawTranscript'] ?? '(none)'}');
+      }
+      print('\n═══════════════════════════════════════════════════════\n');
+
+      // Group summaries by date for Gemini
+      final Map<String, List<Map<String, dynamic>>> summariesByDate = {};
+      for (var summary in summaries) {
+        final timestamp = summary['timestamp'] as Timestamp;
+        final date = timestamp.toDate();
+        final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+        if (!summariesByDate.containsKey(dateKey)) {
+          summariesByDate[dateKey] = [];
+        }
+        summariesByDate[dateKey]!.add(summary);
+      }
+
+      print('📅 GROUPED BY DATE: ${summariesByDate.length} days');
+      for (var entry in summariesByDate.entries) {
+        print('  ${entry.key}: ${entry.value.length} activities');
+      }
+      print('\n');
+
+      // Send to Gemini for narrative summary
+      print('🤖 SENDING TO GEMINI FOR NARRATIVE SUMMARY...\n');
+
+      final geminiSummary = await _generateGeminiNarrative(summariesByDate);
+
+      print('✅ RECEIVED FROM GEMINI:');
+      print('┌─────────────────────────────────────────────────────┐');
+      print(geminiSummary);
+      print('└─────────────────────────────────────────────────────┘\n');
+
+      if (mounted) {
+        setState(() {
+          _dayByDaySummary = geminiSummary;
+          _isLoadingSummary = false;
+        });
+      }
+    } catch (e) {
+      print('❌ ERROR: $e');
+      if (mounted) {
+        setState(() {
+          _dayByDaySummary = 'Error loading summaries: $e';
+          _isLoadingSummary = false;
+        });
+      }
+    }
+  }
+
+  Future<String> _generateGeminiNarrative(Map<String, List<Map<String, dynamic>>> summariesByDate) async {
+    try {
+      // Build prompt for Gemini
+      final buffer = StringBuffer();
+      buffer.writeln('You are a warm, empathetic storyteller helping someone with memory challenges.');
+      buffer.writeln('Create a detailed day-by-day summary of their recent activities.');
+      buffer.writeln('Be descriptive but concise.\n');
+
+      // Sort dates (most recent first)
+      final sortedDates = summariesByDate.keys.toList()..sort((a, b) => b.compareTo(a));
+
+      buffer.writeln('Here are the activities:');
+      buffer.writeln();
+
+      for (var dateStr in sortedDates) {
+        final activities = summariesByDate[dateStr]!;
+        final date = DateTime.parse(dateStr);
+        final dayName = _getDayName(date);
+
+        buffer.writeln('$dayName ($dateStr):');
+        for (var activity in activities) {
+          final timestamp = (activity['timestamp'] as Timestamp).toDate();
+          final time = '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
+          buffer.writeln('  - $time with ${activity['personName']}: ${activity['summary']}');
+        }
+        buffer.writeln();
+      }
+
+      buffer.writeln('Instructions:');
+      buffer.writeln('- Write 3-4 sentences for each day');
+      buffer.writeln('- Use warm, conversational language');
+      buffer.writeln('- Include specific times and details');
+      buffer.writeln('- Focus on positive moments and connections');
+      buffer.writeln('- Start each day with the day name (e.g., "Today", "Yesterday")');
+      buffer.writeln('- Write as a flowing narrative, not a list');
+      buffer.writeln('- IMPORTANT: Format ALL person names in bold using markdown: **Name**');
+      buffer.writeln('  Example: "You spent time with **John** and **Sarah**."');
+      buffer.writeln();
+      buffer.writeln('Create a warm day-by-day summary:');
+
+      final prompt = buffer.toString();
+
+      print('📤 GEMINI PROMPT:');
+      print('─────────────────────────────────────────────────────');
+      print(prompt);
+      print('═══════════════════════════════════════════════════════\n');
+
+      // Call Gemini directly
+      final value = await Gemini.instance.text(prompt);
+      final summary = value?.output?.trim() ?? '';
+      return summary;
+    } catch (e) {
+      print('❌ Gemini error: $e');
+      // Fallback to simple summary
+      return summariesByDate.entries.map((entry) {
+        final date = DateTime.parse(entry.key);
+        final dayName = _getDayName(date);
+        final people = entry.value.map((a) => a['personName']).toSet().join(', ');
+        return '$dayName: You spent time with $people.';
+      }).join('\n\n');
+    }
+  }
+
+  String _getDayName(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDate = DateTime(date.year, date.month, date.day);
+    final difference = today.difference(targetDate).inDays;
+
+    if (difference == 0) return 'Today';
+    if (difference == 1) return 'Yesterday';
+    if (difference < 7) return '$difference days ago';
+    return '${date.month}/${date.day}/${date.year}';
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -797,6 +1008,34 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
+                    const Spacer(),
+                    if (_isRecording)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.fiber_manual_record,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Recording',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      const SizedBox(width: 48), // Spacer for alignment
                   ],
                 ),
 
@@ -857,6 +1096,14 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           ),
         ),
 
+        // Day-by-day summary widget
+        if (_showDayByDaySummary)
+          DayByDaySummaryWidget(
+            summary: _dayByDaySummary,
+            isLoading: _isLoadingSummary,
+            onRefresh: _loadDayByDaySummary,
+          ),
+
         // Enrollment UI Overlays
         if (_enrollmentMode == EnrollmentMode.collectingName)
           _buildNameInputOverlay(),
@@ -904,6 +1151,256 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
               ],
             ),
           ),
+
+        // Expandable Floating Action Menu (Bottom Right)
+        Positioned(
+          bottom: 100,
+          right: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Daily Summary Button (appears when expanded)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                height: _isMenuExpanded ? 70 : 0,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: _isMenuExpanded ? 1.0 : 0.0,
+                  child: _isMenuExpanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _showDayByDaySummary = !_showDayByDaySummary;
+                                  _isMenuExpanded = false;
+                                });
+                                if (_showDayByDaySummary) {
+                                  _loadDayByDaySummary();
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(25),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.white.withValues(alpha: 0.2),
+                                      Colors.white.withValues(alpha: 0.1),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(25),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.3),
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 10,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(25),
+                                  child: BackdropFilter(
+                                    filter: ImageFilter.blur(
+                                      sigmaX: 10,
+                                      sigmaY: 10,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.calendar_today_rounded,
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'Summary',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
+
+              // SOS Button (appears when expanded)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                height: _isMenuExpanded ? 70 : 0,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  opacity: _isMenuExpanded ? 1.0 : 0.0,
+                  child: _isMenuExpanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () async {
+                                print('🆘 SOS Button Pressed!');
+                                
+                                final userProvider = Provider.of<UserProvider>(
+                                  context,
+                                  listen: false,
+                                );
+                                final patientId = userProvider.currentUser!.uid;
+                                
+                                setState(() {
+                                  _isMenuExpanded = false;
+                                });
+                                
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('🆘 SOS Triggered (Debug Mode)'),
+                                    backgroundColor: Colors.red,
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(25),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.white.withValues(alpha: 0.2),
+                                      Colors.white.withValues(alpha: 0.1),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(25),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.3),
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 10,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(25),
+                                  child: BackdropFilter(
+                                    filter: ImageFilter.blur(
+                                      sigmaX: 10,
+                                      sigmaY: 10,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.emergency_rounded,
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'SOS',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ),
+
+              // Main Menu Toggle Button
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    setState(() {
+                      _isMenuExpanded = !_isMenuExpanded;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(30),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: _isMenuExpanded
+                            ? [
+                                Colors.white.withValues(alpha: 0.3),
+                                Colors.white.withValues(alpha: 0.2),
+                              ]
+                            : [
+                                Colors.white.withValues(alpha: 0.2),
+                                Colors.white.withValues(alpha: 0.1),
+                              ],
+                      ),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.3),
+                        width: 2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 15,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(30),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                        child: AnimatedRotation(
+                          duration: const Duration(milliseconds: 300),
+                          turns: _isMenuExpanded ? 0.125 : 0, // 45 degrees
+                          child: Icon(
+                            _isMenuExpanded ? Icons.close : Icons.menu_rounded,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

@@ -230,6 +230,8 @@ class DatabaseService {
     int? limit,
   }) async {
     try {
+      print('DEBUG getActivityLogs: patientId=$patientId, startDate=$startDate, endDate=$endDate, limit=$limit');
+      
       Query query = _firestore
           .collection(AppConstants.activityLogsCollection)
           .where('patientId', isEqualTo: patientId)
@@ -247,13 +249,73 @@ class DatabaseService {
         query = query.limit(limit);
       }
 
+      print('DEBUG: Executing Firestore query...');
       final querySnapshot = await query.get();
+      print('DEBUG: Query returned ${querySnapshot.docs.length} documents');
 
-      return querySnapshot.docs
-          .map((doc) => ActivityLogModel.fromFirestore(doc))
+      final logs = querySnapshot.docs
+          .map((doc) {
+            print('DEBUG: Processing doc ${doc.id}');
+            return ActivityLogModel.fromFirestore(doc);
+          })
           .toList();
-    } catch (e) {
+
+      print('DEBUG: Converted to ${logs.length} ActivityLogModel objects');
+      return logs;
+    } catch (e, stackTrace) {
+      print('Error fetching activity logs: $e');
+      print('Stack trace: $stackTrace');
       throw 'Error fetching activity logs: $e';
+    }
+  }
+
+  // Simple method to get ALL summaries for a patient (no date filtering, no ordering)
+  Future<List<Map<String, dynamic>>> getAllSummariesForPatient(String patientId) async {
+    try {
+      print('🔍 Fetching all summaries for patient: $patientId');
+      
+      final querySnapshot = await _firestore
+          .collection(AppConstants.activityLogsCollection)
+          .where('patientId', isEqualTo: patientId)
+          .get();
+      
+      print('✅ Found ${querySnapshot.docs.length} activity logs');
+      
+      final summaries = <Map<String, dynamic>>[];
+      
+      for (var doc in querySnapshot.docs) {
+        final data = doc.data();
+        summaries.add({
+          'id': doc.id,
+          'personName': data['personName'],
+          'summary': data['summary'],
+          'timestamp': data['timestamp'],
+          'rawTranscript': data['rawTranscript'],
+        });
+      }
+      
+      return summaries;
+    } catch (e) {
+      print('❌ Error fetching summaries: $e');
+      return [];
+    }
+  }
+
+  // DEBUG: Get ALL activity logs (no filter) for debugging
+  Future<List<Map<String, dynamic>>> getAllActivityLogsForDebug() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection(AppConstants.activityLogsCollection)
+          .get();
+      
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print('Error fetching all activity logs: $e');
+      return [];
     }
   }
 
@@ -305,6 +367,98 @@ class DatabaseService {
       return [];
     }
   }
+
+  // Get activity logs grouped by date for day-by-day summaries
+  Future<Map<String, List<ActivityLogModel>>> getActivityLogsByDate(
+    String patientId, {
+    int daysBack = 7,
+  }) async {
+    try {
+      final now = DateTime.now();
+      // Start from midnight of (daysBack) days ago
+      final startDate = DateTime(now.year, now.month, now.day)
+          .subtract(Duration(days: daysBack));
+
+      print('═══════════════════════════════════════════════════════');
+      print('DEBUG: FETCHING ACTIVITY LOGS BY DATE');
+      print('═══════════════════════════════════════════════════════');
+      print('Patient ID: $patientId');
+      print('Start date: $startDate');
+      print('Current date: $now');
+      print('Days back: $daysBack');
+
+      final logs = await getActivityLogs(
+        patientId,
+        startDate: startDate,
+      );
+
+      print('\n📊 TOTAL LOGS FETCHED: ${logs.length}');
+      print('═══════════════════════════════════════════════════════\n');
+
+      if (logs.isEmpty) {
+        print('⚠️  NO LOGS FOUND IN FIREBASE!');
+        print('   Check if:');
+        print('   1. Patient ID matches: $patientId');
+        print('   2. Logs exist in "activity_logs" collection');
+        print('   3. Date range is correct');
+        print('═══════════════════════════════════════════════════════\n');
+      }
+
+      // Print ALL summary values from Firebase
+      for (var i = 0; i < logs.length; i++) {
+        final log = logs[i];
+        print('┌─────────────────────────────────────────────────────┐');
+        print('│ LOG #${i + 1}');
+        print('├─────────────────────────────────────────────────────┤');
+        print('│ ID: ${log.id}');
+        print('│ Patient ID: ${log.patientId}');
+        print('│ Person ID: ${log.personId}');
+        print('│ Person Name: ${log.personName}');
+        print('│ Timestamp: ${log.timestamp}');
+        print('│ Duration: ${log.duration?.inSeconds ?? 0} seconds');
+        print('├─────────────────────────────────────────────────────┤');
+        print('│ 📝 SUMMARY FROM FIREBASE:');
+        print('│ ${log.summary ?? "(no summary)"}');
+        print('├─────────────────────────────────────────────────────┤');
+        print('│ 🎤 RAW TRANSCRIPT:');
+        print('│ ${log.rawTranscript ?? "(no transcript)"}');
+        print('└─────────────────────────────────────────────────────┘\n');
+      }
+
+      // Group logs by date
+      final Map<String, List<ActivityLogModel>> logsByDate = {};
+
+      for (final log in logs) {
+        final dateKey = _getDateKey(log.timestamp);
+        if (!logsByDate.containsKey(dateKey)) {
+          logsByDate[dateKey] = [];
+        }
+        logsByDate[dateKey]!.add(log);
+      }
+
+      print('═══════════════════════════════════════════════════════');
+      print('📅 GROUPED BY DATE: ${logsByDate.length} days');
+      print('═══════════════════════════════════════════════════════');
+      for (final entry in logsByDate.entries) {
+        print('Date: ${entry.key} → ${entry.value.length} log(s)');
+        for (var log in entry.value) {
+          print('  - ${log.personName}: ${log.summary}');
+        }
+      }
+      print('═══════════════════════════════════════════════════════\n');
+
+      return logsByDate;
+    } catch (e) {
+      print('❌ ERROR fetching activity logs by date: $e');
+      return {};
+    }
+  }
+
+  // Helper: Get date key in YYYY-MM-DD format
+  String _getDateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
 
   // ==================== STORAGE OPERATIONS ====================
 
