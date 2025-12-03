@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../main.dart' show cameras;
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
+import '../../widgets/face_guideline_painter.dart';
 
 enum FacePose { center, left, right, up, down }
 
@@ -46,7 +47,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
 
   // Current detected pose
   FacePose? _currentPose;
-  Face? _detectedFace;
 
   // Auto-capture state
   DateTime? _lastCaptureTime;
@@ -130,7 +130,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
           final pose = _detectPose(face);
 
           setState(() {
-            _detectedFace = face;
             _currentPose = pose;
           });
 
@@ -140,7 +139,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
           }
         } else {
           setState(() {
-            _detectedFace = null;
             _currentPose = null;
           });
         }
@@ -377,14 +375,12 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
   }
 
   Widget _buildPoseGuideOverlay() {
-    if (_detectedFace == null) return const SizedBox();
-
     // Draw a circle guide for the face
     return CustomPaint(
-      painter: _FaceGuidePainter(
-        detectedFace: _detectedFace!,
-        currentPose: _currentPose,
+      painter: FaceGuidelinePainter(
+        color: _currentPose != null ? Colors.greenAccent : null,
       ),
+      size: Size.infinite,
     );
   }
 
@@ -482,35 +478,5 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
       case FacePose.down:
         return 'Tilt your head down slightly';
     }
-  }
-}
-
-class _FaceGuidePainter extends CustomPainter {
-  final Face detectedFace;
-  final FacePose? currentPose;
-
-  _FaceGuidePainter({required this.detectedFace, this.currentPose});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0
-      ..color = currentPose != null ? Colors.greenAccent : Colors.white;
-
-    // Draw oval guide
-    final rect = detectedFace.boundingBox;
-    final ovalRect = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: size.width * 0.6,
-      height: size.height * 0.7,
-    );
-
-    canvas.drawOval(ovalRect, paint);
-  }
-
-  @override
-  bool shouldRepaint(_FaceGuidePainter oldDelegate) {
-    return oldDelegate.currentPose != currentPose;
   }
 }

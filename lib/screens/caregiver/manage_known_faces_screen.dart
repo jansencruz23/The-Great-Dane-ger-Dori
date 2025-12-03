@@ -252,30 +252,48 @@ class _ManageKnownFacesScreenState extends State<ManageKnownFacesScreen> {
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
               ),
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 4,
                 children: [
-                  Icon(Icons.visibility, size: 16, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${face.interactionCount} interactions',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(width: 12),
-                  if (face.lastSeenAt != null) ...[
-                    Icon(
-                      Icons.access_time,
-                      size: 16,
-                      color: Colors.grey.shade600,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _formatLastSeen(face.lastSeenAt!),
-                      style: TextStyle(
-                        fontSize: 12,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.visibility,
+                        size: 16,
                         color: Colors.grey.shade600,
                       ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${face.interactionCount} interactions',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (face.lastSeenAt != null)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.access_time,
+                          size: 16,
+                          color: Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatLastSeen(face.lastSeenAt!),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
                 ],
               ),
             ],
