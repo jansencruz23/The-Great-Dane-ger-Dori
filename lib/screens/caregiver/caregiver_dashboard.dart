@@ -23,6 +23,19 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   List<UserModel> _patients = [];
   bool _isLoading = false;
 
+  final List<Color> _profileColors = [
+    const Color(0xFF00A86B), // Jade Green (Base)
+    const Color(0xFF2E7D32), // Forest Green (Monochromatic Shade)
+    const Color(0xFF009688), // Teal (Analogous)
+    const Color(0xFF80CBC4), // Seafoam (Tint)
+    const Color(0xFFE0F2F1), // Pale Aqua (Light Tint)
+    const Color(0xFF78909C), // Blue Grey (Neutral Cool)
+    Colors.white, // White (Neutral)
+    const Color(0xFFFFD54F), // Amber/Gold (Triadic/Rich pairing)
+    const Color(0xFFFF8A65), // Deep Orange/Coral (Split Complementary)
+    const Color(0xFFF06292), // Pink/Rose (Complementary)
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -277,14 +290,24 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   }
 
   Widget _buildPatientCard(UserModel patient) {
+    final backgroundColor = patient.profileColor != null
+        ? Color(patient.profileColor!)
+        : Colors.white;
+
+    // Calculate contrast color
+    final isDark = backgroundColor.computeLuminance() < 0.5;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white70 : Colors.black54;
+    final iconColor = isDark ? Colors.white : AppColors.primary;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .05),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -308,20 +331,27 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             ),
             title: Text(
               patient.name,
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: textColor,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             subtitle: Text(
               patient.email,
               style: Theme.of(
                 context,
-              ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+              ).textTheme.bodyMedium?.copyWith(color: subTextColor),
             ),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            trailing: Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: subTextColor,
+            ),
             onTap: () {
               _showPatientActions(patient);
             },
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: subTextColor.withOpacity(0.2)),
           Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
@@ -338,10 +368,14 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.face, size: 18),
-                    label: const Text('Manage Faces'),
+                    icon: Icon(Icons.face, size: 18, color: textColor),
+                    label: Text('Faces', style: TextStyle(color: textColor)),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
+                      foregroundColor: textColor,
+                      side: BorderSide(color: subTextColor.withOpacity(0.5)),
+                      backgroundColor: isDark
+                          ? Colors.white.withOpacity(0.1)
+                          : Colors.white.withOpacity(0.5),
                     ),
                   ),
                 ),
@@ -358,11 +392,26 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.history, size: 18),
-                    label: const Text('Activities'),
+                    icon: Icon(Icons.history, size: 18, color: textColor),
+                    label: Text('Activity', style: TextStyle(color: textColor)),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.secondary,
+                      foregroundColor: textColor,
+                      side: BorderSide(color: subTextColor.withOpacity(0.5)),
+                      backgroundColor: isDark
+                          ? Colors.white.withOpacity(0.1)
+                          : Colors.white.withOpacity(0.5),
                     ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () => _showColorPicker(patient),
+                  icon: Icon(Icons.color_lens, color: textColor),
+                  tooltip: 'Change Color',
+                  style: IconButton.styleFrom(
+                    backgroundColor: isDark
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.white.withOpacity(0.5),
                   ),
                 ),
               ],
@@ -425,5 +474,94 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         ),
       ),
     );
+  }
+
+  void _showColorPicker(UserModel patient) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Pick Profile Color',
+              style: Theme.of(context).textTheme.headlineSmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              alignment: WrapAlignment.center,
+              children: _profileColors.map((color) {
+                final isSelected =
+                    patient.profileColor == color.value ||
+                    (patient.profileColor == null && color == Colors.white);
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _updatePatientColor(patient, color);
+                  },
+                  child: Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.grey.withOpacity(0.3),
+                        width: 1,
+                      ),
+                      boxShadow: [
+                        if (isSelected)
+                          BoxShadow(
+                            color: AppColors.primary.withOpacity(0.4),
+                            blurRadius: 8,
+                            spreadRadius: 2,
+                          ),
+                      ],
+                    ),
+                    child: isSelected
+                        ? const Icon(Icons.check, color: AppColors.primary)
+                        : null,
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _updatePatientColor(UserModel patient, Color color) async {
+    try {
+      final updatedPatient = patient.copyWith(profileColor: color.value);
+
+      // Optimistic update
+      setState(() {
+        final index = _patients.indexWhere((p) => p.uid == patient.uid);
+        if (index != -1) {
+          _patients[index] = updatedPatient;
+        }
+      });
+
+      await _databaseService.updateUser(updatedPatient);
+    } catch (e) {
+      // Revert on error
+      _loadPatients();
+      if (mounted) {
+        Helpers.showSnackBar(
+          context,
+          'Error updating color: $e',
+          isError: true,
+        );
+      }
+    }
   }
 }

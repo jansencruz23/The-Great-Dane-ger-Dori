@@ -9,6 +9,7 @@ class UserModel {
   final List<String>? patientIds;
   final DateTime createdAt;
   final DateTime? lastLoginAt;
+  final int? profileColor;
 
   UserModel({
     required this.uid,
@@ -19,6 +20,7 @@ class UserModel {
     this.patientIds,
     required this.createdAt,
     this.lastLoginAt,
+    this.profileColor,
   });
 
   // Create UserModel from Firestore document
@@ -38,6 +40,7 @@ class UserModel {
       lastLoginAt: data['lastLoginAt'] != null
           ? (data['lastLoginAt'] as Timestamp).toDate()
           : null,
+      profileColor: data['profileColor'],
     );
   }
 
@@ -53,6 +56,7 @@ class UserModel {
       'lastLoginAt': lastLoginAt != null
           ? Timestamp.fromDate(lastLoginAt!)
           : null,
+      'profileColor': profileColor,
     };
   }
 
@@ -66,6 +70,7 @@ class UserModel {
     List<String>? patientIds,
     DateTime? createdAt,
     DateTime? lastLoginAt,
+    int? profileColor,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -76,6 +81,7 @@ class UserModel {
       patientIds: patientIds ?? this.patientIds,
       createdAt: createdAt ?? this.createdAt,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
+      profileColor: profileColor ?? this.profileColor,
     );
   }
 
