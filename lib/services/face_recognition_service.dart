@@ -1,361 +1,401 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:camera/camera.dart';
+import 'package:flutter/animation.dart';
+import 'package:flutter/foundation.dart';
+import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:image/image.dart' as img;
+import 'package:tflite_flutter/tflite_flutter.dart';
 
-import '../models/user_model.dart';
 import '../models/known_face_model.dart';
-import '../models/activity_log_model.dart';
 import '../utils/constants.dart';
+import '../utils/helpers.dart';
 
-class DatabaseService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+class FaceRecognitionService {
+  Interpreter? _interpreter;
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      enableContours: true,
+      enableClassification: false,
+      enableLandmarks: true,
+      enableTracking: true,
+      performanceMode: FaceDetectorMode.fast,
+    ),
+  );
 
-  // ==================== USER OPERATIONS ====================
+  List<KnownFaceModel> _knownFaces = [];
+  bool _isInitialized = false;
 
-  Future<UserModel?> getUser(String uid) async {
+  bool get isInitialized => _isInitialized;
+
+  // Initialize TensorFlow Lite model
+  Future<void> initialize() async {
     try {
-      final doc = await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(uid)
-          .get();
-
-      if (doc.exists) {
-        return UserModel.fromFirestore(doc);
-      }
-
-      return null;
-    } catch (e) {
-      throw 'Error fetching user: $e';
-    }
-  }
-
-  Future<void> createUser(UserModel user) async {
-    try {
-      await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(user.uid)
-          .set(user.toMap());
-    } catch (e) {
-      throw 'Error creating user: $e';
-    }
-  }
-
-  Future<void> updateUser(UserModel user) async {
-    try {
-      await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(user.uid)
-          .update(user.toMap());
-    } catch (e) {
-      throw 'Error updating user: $e';
-    }
-  }
-
-  Future<void> updateUserLastLogin(String uid) async {
-    try {
-      await _firestore.collection(AppConstants.usersCollection).doc(uid).update(
-        {'lastLoginAt': FieldValue.serverTimestamp()},
+      // Load MobileFaceNet model for face recognition
+      _interpreter = await Interpreter.fromAsset(
+        'assets/models/MobileFaceNet.tflite',
       );
-    } catch (e) {
-      throw 'Error updating user last login: $e';
-    }
-  }
 
-  Future<void> linkPatientToCaregiver(
-    String caregiverId,
-    String patientId,
-  ) async {
-    try {
-      await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(caregiverId)
-          .update({
-            'patientIds': FieldValue.arrayUnion([patientId]),
-          });
-    } catch (e) {
-      throw 'Error linking patient to caregiver: $e';
-    }
-  }
+      // Print model input/output shapes for debugging
+      final inputTensors = _interpreter!.getInputTensors();
+      final outputTensors = _interpreter!.getOutputTensors();
 
-  Future<List<UserModel>> getCaregiversPatients(String caregiverId) async {
-    try {
-      final caregiver = await getUser(caregiverId);
-      if (caregiver == null || caregiver.patientIds == null) {
-        return [];
+      print('=== Face Recognition Model Info ===');
+      print('Input tensors: ${inputTensors.length}');
+      for (var i = 0; i < inputTensors.length; i++) {
+        print('  Input $i shape: ${inputTensors[i].shape}');
+        print('  Input $i type: ${inputTensors[i].type}');
       }
 
-      final patients = <UserModel>[];
-      for (final patientId in caregiver.patientIds!) {
-        final patient = await getUser(patientId);
-        if (patient != null) {
-          patients.add(patient);
-        }
+      print('Output tensors: ${outputTensors.length}');
+      for (var i = 0; i < outputTensors.length; i++) {
+        print('  Output $i shape: ${outputTensors[i].shape}');
+        print('  Output $i type: ${outputTensors[i].type}');
       }
+      print('===================================');
 
-      return patients;
+      _isInitialized = true;
+      print('Face recognition service initialized');
     } catch (e) {
-      throw 'Error fetching caregivers patients: $e';
+      print('Face recognition service initialization failed: $e');
+      throw 'Failed to initialize face recognition service';
     }
   }
 
-  // ==================== KNOWN FACES OPERATIONS ====================
+  // Dispose resources
+  void dispose() {
+    _interpreter?.close();
+    _faceDetector.close();
+    _isInitialized = false;
+  }
 
-  Future<String> addKnownFace(
-    KnownFaceModel face, {
-    File? imageFile,
-    List<File>? imageFiles,
-  }) async {
-    try {
-      List<String>? imageUrls;
+  // Update known faces list
+  void updateKnownFaces(List<KnownFaceModel> faces) {
+    _knownFaces = faces;
+  }
 
-      // Upload multiple images if provided (for live enrollment)
-      if (imageFiles != null && imageFiles.isNotEmpty) {
-        imageUrls = [];
-        for (final file in imageFiles) {
-          final url = await uploadFaceImage(face.patientId, file);
-          imageUrls.add(url);
-        }
-      }
-      // Upload single image if provided (for gallery upload)
-      else if (imageFile != null) {
-        final url = await uploadFaceImage(face.patientId, imageFile);
-        imageUrls = [url];
-      }
-
-      final faceWithImage = face.copyWith(imageUrls: imageUrls);
-
-      final docRef = await _firestore
-          .collection(AppConstants.knownFacesCollection)
-          .add(faceWithImage.toMap());
-
-      return docRef.id;
-    } catch (e) {
-      throw 'Error adding known face: $e';
+  // Detect faces in camera image
+  Future<List<Face>> detectFaces(CameraImage cameraImage) async {
+    if (!_isInitialized) {
+      throw 'Face recognition not initialized';
     }
-  }
 
-  Future<void> updateKnownFace(KnownFaceModel face) async {
     try {
-      await _firestore
-          .collection(AppConstants.knownFacesCollection)
-          .doc(face.id)
-          .update(face.toMap());
+      final inputImage = _convertCameraImage(cameraImage);
+      final faces = await _faceDetector.processImage(inputImage);
+      return faces;
     } catch (e) {
-      throw 'Error updating known face: $e';
-    }
-  }
-
-  Future<void> deleteKnownFace(String faceId) async {
-    try {
-      await _firestore
-          .collection(AppConstants.knownFacesCollection)
-          .doc(faceId)
-          .delete();
-    } catch (e) {
-      throw 'Error deleting known face: $e';
-    }
-  }
-
-  Future<List<KnownFaceModel>> getKnownFaces(String patientId) async {
-    try {
-      final querySnapshot = await _firestore
-          .collection(AppConstants.knownFacesCollection)
-          .where('patientId', isEqualTo: patientId)
-          .get();
-
-      return querySnapshot.docs
-          .map((doc) => KnownFaceModel.fromFirestore(doc))
-          .toList();
-    } catch (e) {
-      throw 'Error fetching known faces: $e';
-    }
-  }
-
-  Stream<List<KnownFaceModel>> streamKnownFaces(String patientId) {
-    return _firestore
-        .collection(AppConstants.knownFacesCollection)
-        .where('patientId', isEqualTo: patientId)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => KnownFaceModel.fromFirestore(doc))
-              .toList(),
-        );
-  }
-
-  Future<void> updateFaceLastSeen(String faceId) async {
-    try {
-      await _firestore
-          .collection(AppConstants.knownFacesCollection)
-          .doc(faceId)
-          .update({
-            'lastSeenAt': FieldValue.serverTimestamp(),
-            'interactionCount': FieldValue.increment(1),
-          });
-    } catch (e) {
-      throw 'Error updating face last seen: $e';
-    }
-  }
-
-  // ==================== ACTIVITY LOG OPERATIONS ====================
-
-  Future<String> createActivityLog(ActivityLogModel log) async {
-    try {
-      final docRef = await _firestore
-          .collection(AppConstants.activityLogsCollection)
-          .add(log.toMap());
-
-      return docRef.id;
-    } catch (e) {
-      throw 'Error creating activity log: $e';
-    }
-  }
-
-  Future<void> updateActivityLog(ActivityLogModel log) async {
-    try {
-      await _firestore
-          .collection(AppConstants.activityLogsCollection)
-          .doc(log.id)
-          .update(log.toMap());
-    } catch (e) {
-      throw 'Error updating activity log: $e';
-    }
-  }
-
-  Future<List<ActivityLogModel>> getActivityLogs(
-    String patientId, {
-    DateTime? startDate,
-    DateTime? endDate,
-    int? limit,
-  }) async {
-    try {
-      Query query = _firestore
-          .collection(AppConstants.activityLogsCollection)
-          .where('patientId', isEqualTo: patientId)
-          .orderBy('timestamp', descending: true);
-
-      if (startDate != null) {
-        query = query.where('timestamp', isGreaterThanOrEqualTo: startDate);
-      }
-
-      if (endDate != null) {
-        query = query.where('timestamp', isLessThanOrEqualTo: endDate);
-      }
-
-      if (limit != null) {
-        query = query.limit(limit);
-      }
-
-      final querySnapshot = await query.get();
-
-      return querySnapshot.docs
-          .map((doc) => ActivityLogModel.fromFirestore(doc))
-          .toList();
-    } catch (e) {
-      throw 'Error fetching activity logs: $e';
-    }
-  }
-
-  Stream<List<ActivityLogModel>> streamActivityLogs(String patientId) {
-    return _firestore
-        .collection(AppConstants.activityLogsCollection)
-        .where('patientId', isEqualTo: patientId)
-        .orderBy('timestamp', descending: true)
-        .limit(50)
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => ActivityLogModel.fromFirestore(doc))
-              .toList(),
-        );
-  }
-
-  Future<List<ActivityLogModel>> getTodayActivityLogs(String patientId) async {
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
-
-    return await getActivityLogs(
-      patientId,
-      startDate: startOfDay,
-      endDate: endOfDay,
-    );
-  }
-
-  Future<List<ActivityLogModel>> getPersonActivityLogs(
-    String patientId,
-    String personId, {
-    int limit = 3,
-  }) async {
-    try {
-      final querySnapshot = await _firestore
-          .collection(AppConstants.activityLogsCollection)
-          .where('patientId', isEqualTo: patientId)
-          .where('personId', isEqualTo: personId)
-          .orderBy('timestamp', descending: true)
-          .limit(limit)
-          .get();
-
-      return querySnapshot.docs
-          .map((doc) => ActivityLogModel.fromFirestore(doc))
-          .toList();
-    } catch (e) {
-      print('Error fetching person activity logs: $e');
+      print('Face detection failed: $e');
       return [];
     }
   }
 
-  // ==================== STORAGE OPERATIONS ====================
+  // Detect faces in file
+  Future<List<Face>> detectFacesInFile(File imageFile) async {
+    if (!_isInitialized) {
+      throw 'Face recognition not initialized';
+    }
 
-  Future<String> uploadFaceImage(String patientId, File imageFile) async {
     try {
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final ref = _storage.ref().child(
-        '${AppConstants.faceImagesPath}/$patientId/$fileName',
+      final inputImage = InputImage.fromFile(imageFile);
+      final faces = await _faceDetector.processImage(inputImage);
+      return faces;
+    } catch (e) {
+      print('Face detection failed: $e');
+      return [];
+    }
+  }
+
+  // Extract face embedding from detected face
+  Future<List<double>?> extractFaceEmbedding(img.Image image, Face face) async {
+    if (!_isInitialized || _interpreter == null) {
+      return null;
+    }
+
+    try {
+      // Crop face from image
+      final faceImage = _cropFace(image, face);
+      if (faceImage == null) return null;
+
+      // Resize to model input size (112x112 for MobileFaceNet)
+      final resized = img.copyResize(faceImage, width: 112, height: 112);
+
+      // Prepare input tensor (batch size 2)
+      final input = _imageToByteList(resized);
+
+      // Prepare output tensor (192-dimensional embedding, batch size 2)
+      final output = List.filled(2 * 192, 0.0).reshape([2, 192]);
+
+      // Run inference
+      _interpreter!.run(input, output);
+
+      // Average both batch outputs for potentially better quality
+      final embedding1 = List<double>.from(output[0]);
+      final embedding2 = List<double>.from(output[1]);
+
+      // Average the two embeddings
+      final embedding = List.generate(
+        embedding1.length,
+        (i) => (embedding1[i] + embedding2[i]) / 2.0,
       );
 
-      await ref.putFile(imageFile);
-      final url = await ref.getDownloadURL();
-      return url;
+      // Debug: Check embedding stats
+      final embeddingSum = embedding.reduce((a, b) => a + b);
+      final embeddingMean = embeddingSum / embedding.length;
+      print(
+        'DEBUG: Embedding stats - Length: ${embedding.length}, Mean: ${embeddingMean.toStringAsFixed(4)}, First 5 values: ${embedding.take(5).toList()}',
+      );
+
+      final normalized = Helpers.normalizeEmbedding(embedding);
+      final normalizedSum = normalized.reduce((a, b) => a + b);
+      print(
+        'DEBUG: Normalized embedding sum: ${normalizedSum.toStringAsFixed(4)}',
+      );
+
+      return normalized;
     } catch (e) {
-      throw 'Error uploading face image: $e';
+      print('Face embedding extraction failed: $e');
+      return null;
     }
   }
 
-  Future<void> deleteFaceImage(String imageUrl) async {
+  // Recognize face by comparing with known faces
+  KnownFaceModel? recognizeFace(List<double> embedding) {
+    if (_knownFaces.isEmpty) {
+      print('DEBUG: No known faces loaded');
+      return null;
+    }
+
+    print('DEBUG: Comparing against ${_knownFaces.length} known faces');
+
+    KnownFaceModel? bestMatch;
+    double bestSimilarity = 0.0;
+    int bestEmbeddingIndex = -1;
+
+    for (final knownFace in _knownFaces) {
+      // Compare against ALL stored embeddings for this person
+      final allEmbeddings = knownFace.getAllEmbeddings();
+
+      for (int i = 0; i < allEmbeddings.length; i++) {
+        final similarity = Helpers.cosineSimilarity(
+          embedding,
+          allEmbeddings[i],
+        );
+
+        print(
+          'DEBUG: Similarity with ${knownFace.name} (angle $i): $similarity (threshold: ${AppConstants.faceRecognitionThreshold})',
+        );
+
+        if (similarity > bestSimilarity &&
+            similarity >= AppConstants.faceRecognitionThreshold) {
+          bestSimilarity = similarity;
+          bestMatch = knownFace;
+          bestEmbeddingIndex = i;
+        }
+      }
+    }
+
+    if (bestMatch != null) {
+      print(
+        'DEBUG: Best match: ${bestMatch.name} with similarity $bestSimilarity (from angle $bestEmbeddingIndex)',
+      );
+    } else {
+      print('DEBUG: No match found. Best similarity was: $bestSimilarity');
+    }
+
+    return bestMatch;
+  }
+
+  // Process camera frame for recognition
+  Future<Map<Face, KnownFaceModel?>> processCameraFrame(
+    CameraImage cameraImage,
+  ) async {
+    if (!_isInitialized) return {};
+
     try {
-      final ref = _storage.refFromURL(imageUrl);
-      await ref.delete();
+      // Detect faces
+      final faces = await detectFaces(cameraImage);
+      if (faces.isEmpty) return {};
+
+      // Convert camera image to img.Image
+      final image = _convertToImage(cameraImage);
+      if (image == null) return {};
+
+      // Process each face
+      final results = <Face, KnownFaceModel?>{};
+
+      for (final face in faces) {
+        // Extract embedding
+        final embedding = await extractFaceEmbedding(image, face);
+
+        if (embedding != null) {
+          // Recognize face
+          final match = recognizeFace(embedding);
+          results[face] = match;
+        } else {
+          results[face] = null;
+        }
+      }
+
+      return results;
     } catch (e) {
-      throw 'Error deleting face image: $e';
+      print('Error processing camera frame: $e');
+      return {};
     }
   }
 
-  // ==================== STATISTICS ====================
+  // Helper: Convert CameraImage to InputImage for ML Kit
+  InputImage _convertCameraImage(CameraImage cameraImage) {
+    // 1. Get the raw bytes
+    final WriteBuffer allBytes = WriteBuffer();
+    for (final Plane plane in cameraImage.planes) {
+      allBytes.putUint8List(plane.bytes);
+    }
+    final bytes = allBytes.done().buffer.asUint8List();
 
-  Future<Map<String, dynamic>> getPatientStatistics(String patientId) async {
+    // 2. Get the size
+    final imageSize = Size(
+      cameraImage.width.toDouble(),
+      cameraImage.height.toDouble(),
+    );
+
+    // 3. Handle rotation - Android typically needs 90 degrees in portrait mode
+    final InputImageRotation imageRotation = Platform.isAndroid
+        ? InputImageRotation.rotation90deg
+        : InputImageRotation.rotation0deg;
+
+    // 4. Handle format (Android defaults to NV21, iOS to BGRA8888)
+    final InputImageFormat inputImageFormat = Platform.isIOS
+        ? InputImageFormat.bgra8888
+        : InputImageFormat.nv21;
+
+    // 5. Create the new metadata object
+    final inputImageMetadata = InputImageMetadata(
+      size: imageSize,
+      rotation: imageRotation,
+      format: inputImageFormat,
+      bytesPerRow: cameraImage.planes[0].bytesPerRow,
+    );
+
+    print(
+      'DEBUG: Image size: ${imageSize.width}x${imageSize.height}, rotation: $imageRotation',
+    );
+
+    // 6. Return the InputImage
+    return InputImage.fromBytes(bytes: bytes, metadata: inputImageMetadata);
+  }
+
+  // Helper: Convert CameraImage to img.Image
+  img.Image? _convertToImage(CameraImage cameraImage) {
     try {
-      final knownFaces = await getKnownFaces(patientId);
-      final todayLogs = await getTodayActivityLogs(patientId);
-
-      return {
-        'totalKnownFaces': knownFaces.length,
-        'todayInteractions': todayLogs.length,
-        'mostSeenPerson': _getMostSeenPerson(knownFaces),
-        'lastInteraction': todayLogs.isNotEmpty
-            ? todayLogs.first.timestamp
-            : null,
-      };
+      if (cameraImage.format.group == ImageFormatGroup.yuv420) {
+        return _convertYUV420(cameraImage);
+      } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+        return _convertBGRA8888(cameraImage);
+      }
+      return null;
     } catch (e) {
-      throw 'Error fetching patient statistics: $e';
+      print('Error converting camera image: $e');
+      return null;
     }
   }
 
-  KnownFaceModel? _getMostSeenPerson(List<KnownFaceModel> faces) {
-    if (faces.isEmpty) return null;
+  img.Image _convertYUV420(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
 
-    faces.sort((a, b) => b.interactionCount.compareTo(a.interactionCount));
-    return faces.first;
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+
+    final img.Image imgImage = img.Image(width: width, height: height);
+
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final yIndex = y * yPlane.bytesPerRow + x;
+        final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
+
+        final yValue = yPlane.bytes[yIndex];
+        final uValue = uPlane.bytes[uvIndex];
+        final vValue = vPlane.bytes[uvIndex];
+
+        final r = (yValue + 1.370705 * (vValue - 128)).clamp(0, 255).toInt();
+        final g =
+            (yValue - 0.337633 * (uValue - 128) - 0.698001 * (vValue - 128))
+                .clamp(0, 255)
+                .toInt();
+        final b = (yValue + 1.732446 * (uValue - 128)).clamp(0, 255).toInt();
+
+        imgImage.setPixelRgba(x, y, r, g, b, 255);
+      }
+    }
+
+    return imgImage;
+  }
+
+  img.Image _convertBGRA8888(CameraImage image) {
+    return img.Image.fromBytes(
+      width: image.width,
+      height: image.height,
+      bytes: image.planes[0].bytes.buffer,
+      order: img.ChannelOrder.bgra,
+    );
+  }
+
+  // Helper: Crop face region from image
+  img.Image? _cropFace(img.Image image, Face face) {
+    try {
+      final rect = face.boundingBox;
+
+      // Add padding
+      final padding = 20;
+      final x = (rect.left - padding).clamp(0, image.width).toInt();
+      final y = (rect.top - padding).clamp(0, image.height).toInt();
+      final width = (rect.width + padding * 2)
+          .clamp(0, image.width - x)
+          .toInt();
+      final height = (rect.height + padding * 2)
+          .clamp(0, image.height - y)
+          .toInt();
+
+      return img.copyCrop(image, x: x, y: y, width: width, height: height);
+    } catch (e) {
+      print('Error cropping face: $e');
+      return null;
+    }
+  }
+
+  // Helper: Convert image to byte list for TensorFlow Lite
+  List<List<List<List<double>>>> _imageToByteList(img.Image image) {
+    // Create batch size 2 (duplicate the same image for both batch slots)
+    final input = List.generate(
+      2,
+      (_) => List.generate(
+        112,
+        (_) => List.generate(112, (_) => List.filled(3, 0.0)),
+      ),
+    );
+
+    for (int y = 0; y < 112; y++) {
+      for (int x = 0; x < 112; x++) {
+        final pixel = image.getPixel(x, y);
+
+        // Normalize to [-1, 1]
+        final r = (pixel.r / 127.5) - 1.0;
+        final g = (pixel.g / 127.5) - 1.0;
+        final b = (pixel.b / 127.5) - 1.0;
+
+        // Fill both batch slots with the same image
+        input[0][y][x][0] = r;
+        input[0][y][x][1] = g;
+        input[0][y][x][2] = b;
+
+        input[1][y][x][0] = r;
+        input[1][y][x][1] = g;
+        input[1][y][x][2] = b;
+      }
+    }
+
+    return input;
   }
 }
