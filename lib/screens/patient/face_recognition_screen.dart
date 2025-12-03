@@ -12,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart';
 
 import '../../main.dart' show cameras;
 import '../../providers/user_provider.dart';
@@ -62,6 +63,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isStreamActive = false;
 
   Timer? _processingTimer;
+  Timer? _clockTimer;
+  String _currentTime = '';
 
   // Enrollment mode state
   EnrollmentMode _enrollmentMode = EnrollmentMode.normal;
@@ -95,12 +98,25 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   @override
   void initState() {
     super.initState();
+    _updateTime();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _updateTime();
+    });
     _initializeApp();
+  }
+
+  void _updateTime() {
+    if (mounted) {
+      setState(() {
+        _currentTime = DateFormat('h:mm a').format(DateTime.now());
+      });
+    }
   }
 
   @override
   void dispose() {
     _processingTimer?.cancel();
+    _clockTimer?.cancel();
     if (_isStreamActive && _cameraController != null) {
       _cameraController!.stopImageStream();
     }
@@ -254,10 +270,6 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
   InputImageRotation _getInputImageRotation() {
     final orientation = MediaQuery.of(context).orientation;
-
-    // For most phones, sensor is 90 degrees (Portrait)
-    // If orientation is Portrait, we need 90 deg rotation
-    // If orientation is Landscape, we need 0 deg rotation (relative to sensor)
 
     if (orientation == Orientation.landscape) {
       return InputImageRotation.rotation0deg;
@@ -891,6 +903,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         ..._detectedFaces.entries.map((entry) {
           if (entry.value != null) {
             return ArOverlayWidget(
+              key: ValueKey(entry.key.trackingId),
               face: entry.key,
               knownFace: entry.value!,
               imageSize:
@@ -915,7 +928,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
-                // Back button and status
+                // Back button
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -957,28 +970,114 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                       ],
                     ),
                   ),
-                // Status message
-                Container(
+              ],
+            ),
+          ),
+        ),
+
+        // Bottom Left: Time and Location
+        Positioned(
+          bottom: 24,
+          left: 24,
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _currentTime,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 48,
+                    fontWeight: FontWeight.w300,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(0, 2),
+                        blurRadius: 4,
+                        color: Colors.black45,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on,
+                      color: Colors.white70,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Holy Angel University Foundation',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        shadows: const [
+                          Shadow(
+                            offset: Offset(0, 1),
+                            blurRadius: 2,
+                            color: Colors.black45,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Bottom Right: Face Count
+        Positioned(
+          bottom: 24,
+          right: 24,
+          child: SafeArea(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(25),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.9),
+                    color: AppColors.primary.withOpacity(0.6),
                     borderRadius: BorderRadius.circular(25),
-                  ),
-                  child: Text(
-                    _detectedFaces.isEmpty
-                        ? 'Looking for faces...'
-                        : '${_detectedFaces.length} face(s) detected',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.2),
+                      width: 1,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.face, color: Colors.white, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        _detectedFaces.isEmpty
+                            ? 'Scanning...'
+                            : '${_detectedFaces.length} Detected',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),

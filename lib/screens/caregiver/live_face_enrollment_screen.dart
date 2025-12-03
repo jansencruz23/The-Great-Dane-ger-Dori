@@ -200,15 +200,20 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
     }
 
     try {
-      // Convert camera image to img.Image
-      final image = _convertToImage(cameraImage);
-      if (image == null) return;
+      final rotation = _getInputImageRotation();
 
-      // Extract embedding
-      final embedding = await _faceRecognitionService.extractFaceEmbedding(
-        image,
+      // Crop face directly from YUV using the service (handles rotation correctly)
+      final faceImage = _faceRecognitionService.cropFaceFromYUV(
+        cameraImage,
         face,
+        rotation,
       );
+
+      if (faceImage == null) return;
+
+      // Extract embedding from the cropped image
+      final embedding = await _faceRecognitionService
+          .getEmbeddingFromCroppedImage(faceImage);
 
       if (embedding == null) return;
 
@@ -217,7 +222,7 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
       final fileName = '${widget.personName}_${pose.name}.jpg';
       final file = File('${tempDir.path}/$fileName');
 
-      final jpg = img.encodeJpg(image);
+      final jpg = img.encodeJpg(faceImage);
       await file.writeAsBytes(jpg);
 
       // Store captured data
@@ -231,62 +236,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
     } catch (e) {
       print('Error capturing pose: $e');
     }
-  }
-
-  img.Image? _convertToImage(CameraImage cameraImage) {
-    try {
-      if (cameraImage.format.group == ImageFormatGroup.yuv420) {
-        return _convertYUV420(cameraImage);
-      } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
-        return _convertBGRA8888(cameraImage);
-      }
-      return null;
-    } catch (e) {
-      print('Error converting camera image: $e');
-      return null;
-    }
-  }
-
-  img.Image _convertYUV420(CameraImage image) {
-    final width = image.width;
-    final height = image.height;
-
-    final yPlane = image.planes[0];
-    final uPlane = image.planes[1];
-    final vPlane = image.planes[2];
-
-    final imgImage = img.Image(width: width, height: height);
-
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final yIndex = y * yPlane.bytesPerRow + x;
-        final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
-
-        final yValue = yPlane.bytes[yIndex];
-        final uValue = uPlane.bytes[uvIndex];
-        final vValue = vPlane.bytes[uvIndex];
-
-        final r = (yValue + 1.370705 * (vValue - 128)).clamp(0, 255).toInt();
-        final g =
-            (yValue - 0.337633 * (uValue - 128) - 0.698001 * (vValue - 128))
-                .clamp(0, 255)
-                .toInt();
-        final b = (yValue + 1.732446 * (uValue - 128)).clamp(0, 255).toInt();
-
-        imgImage.setPixelRgba(x, y, r, g, b, 255);
-      }
-    }
-
-    return imgImage;
-  }
-
-  img.Image _convertBGRA8888(CameraImage image) {
-    return img.Image.fromBytes(
-      width: image.width,
-      height: image.height,
-      bytes: image.planes[0].bytes.buffer,
-      order: img.ChannelOrder.bgra,
-    );
   }
 
   void _submitEnrollment() {

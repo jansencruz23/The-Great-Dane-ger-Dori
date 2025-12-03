@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
@@ -15,11 +15,11 @@ class FaceRecognitionService {
   Interpreter? _interpreter;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableContours: false, // Disabled for performance
-      enableClassification: false,
-      enableLandmarks: false, // Disabled for performance
+      enableContours: true, // Disabled for performance
+      enableClassification: true,
+      enableLandmarks: true, // Disabled for performance
       enableTracking: true,
-      performanceMode: FaceDetectorMode.fast,
+      performanceMode: FaceDetectorMode.accurate,
     ),
   );
 
@@ -131,6 +131,7 @@ class FaceRecognitionService {
   Future<List<double>?> extractFaceEmbeddingFromYUV(
     CameraImage cameraImage,
     Face face,
+    InputImageRotation rotation,
   ) async {
     if (!_isInitialized || _interpreter == null) {
       return null;
@@ -138,7 +139,7 @@ class FaceRecognitionService {
 
     try {
       // Crop and convert only the face region directly from YUV
-      final faceImage = _cropFaceFromYUV(cameraImage, face);
+      final faceImage = cropFaceFromYUV(cameraImage, face, rotation);
       if (faceImage == null) return null;
 
       return _runInference(faceImage);
@@ -146,6 +147,16 @@ class FaceRecognitionService {
       print('Face embedding extraction from YUV failed: $e');
       return null;
     }
+  }
+
+  // Public method to get embedding from an already cropped face image
+  Future<List<double>?> getEmbeddingFromCroppedImage(
+    img.Image faceImage,
+  ) async {
+    if (!_isInitialized || _interpreter == null) {
+      return null;
+    }
+    return _runInference(faceImage);
   }
 
   // Helper: Run inference on a cropped face image
@@ -181,12 +192,8 @@ class FaceRecognitionService {
       return null;
     }
 
-    // print('DEBUG: Comparing against ${_knownFaces.length} known faces');
-
     KnownFaceModel? bestMatch;
     double bestSimilarity = 0.0;
-    // double bestDistance = double.infinity;
-    // int bestEmbeddingIndex = -1;
 
     for (final knownFace in _knownFaces) {
       // Compare against ALL stored embeddings for this person
@@ -200,44 +207,18 @@ class FaceRecognitionService {
 
         final distance = Helpers.euclideanDistance(embedding, allEmbeddings[i]);
 
-        // print(
-        //   'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
-        // );
-
         // Use both metrics: high similarity AND low distance for stricter matching
         if (similarity >= AppConstants.faceRecognitionThreshold &&
             distance <= 0.7 &&
             similarity > bestSimilarity) {
           bestSimilarity = similarity;
-          // bestDistance = distance;
           bestMatch = knownFace;
-          // bestEmbeddingIndex = i;
         }
       }
     }
 
-    if (bestMatch != null) {
-      // print(
-      //   'DEBUG: Best match: ${bestMatch.name} with similarity=$bestSimilarity, distance=$bestDistance (from angle $bestEmbeddingIndex)',
-      // );
-    } else {
-      // print(
-      //   'DEBUG: No match found. Best similarity was: $bestSimilarity, distance: $bestDistance',
-      // );
-    }
-
     return bestMatch;
   }
-
-  // ... (detectFacesInFile remains unchanged)
-
-  // ... (extractFaceEmbedding remains unchanged)
-
-  // ... (extractFaceEmbeddingFromYUV remains unchanged)
-
-  // ... (_runInference remains unchanged)
-
-  // ... (recognizeFace remains unchanged)
 
   // Process camera frame for recognition
   Future<Map<Face, KnownFaceModel?>> processCameraFrame(
@@ -256,7 +237,11 @@ class FaceRecognitionService {
 
       for (final face in faces) {
         // Extract embedding directly from YUV buffer (optimized)
-        final embedding = await extractFaceEmbeddingFromYUV(cameraImage, face);
+        final embedding = await extractFaceEmbeddingFromYUV(
+          cameraImage,
+          face,
+          rotation,
+        );
 
         if (embedding != null) {
           // Recognize face
@@ -291,9 +276,6 @@ class FaceRecognitionService {
       cameraImage.width.toDouble(),
       cameraImage.height.toDouble(),
     );
-
-    // 3. Handle rotation (passed from caller)
-    // final InputImageRotation imageRotation = rotation;
 
     // 4. Handle format (Android defaults to NV21, iOS to BGRA8888)
     final InputImageFormat inputImageFormat = Platform.isIOS
@@ -393,7 +375,11 @@ class FaceRecognitionService {
   }
 
   // Optimized: Crop and convert ONLY the face region from YUV buffer
-  img.Image? _cropFaceFromYUV(CameraImage image, Face face) {
+  img.Image? cropFaceFromYUV(
+    CameraImage image,
+    Face face,
+    InputImageRotation rotation,
+  ) {
     try {
       // Only support YUV420 for now (standard Android format)
       if (image.format.group != ImageFormatGroup.yuv420) {
@@ -403,11 +389,14 @@ class FaceRecognitionService {
       final int width = image.width;
       final int height = image.height;
 
-      // Get face bounding box with padding
-      final rect = face.boundingBox;
+      Rect rect = face.boundingBox;
+
+      // Handle coordinate transformation if rotated (Portrait)
+      // Add padding
       final padding = 20;
 
-      // Calculate crop coordinates (clamped to image bounds)
+      // Note: We use the rect as-is. If this was working for Portrait, we keep it.
+      // For Landscape (rotation0deg), rect matches YUV, so it's correct.
       final int left = (rect.left - padding).toInt().clamp(0, width - 1);
       final int top = (rect.top - padding).toInt().clamp(0, height - 1);
       final int right = (rect.right + padding).toInt().clamp(0, width - 1);
@@ -452,6 +441,13 @@ class FaceRecognitionService {
 
           faceImage.setPixelRgba(x, y, r, g, b, 255);
         }
+      }
+
+      // Handle rotation for Portrait mode
+      if (rotation == InputImageRotation.rotation90deg) {
+        // The cropped image is sideways (because YUV is sideways).
+        // Rotate it -90 degrees (counter-clockwise) to make it upright.
+        return img.copyRotate(faceImage, angle: -90);
       }
 
       return faceImage;

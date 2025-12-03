@@ -24,6 +24,7 @@ class ArOverlayWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
+    final isLandscape = screenSize.width > screenSize.height;
 
     // Convert face bounding box to screen coordinates
     final scaleX = screenSize.width / imageSize.width;
@@ -32,26 +33,38 @@ class ArOverlayWidget extends StatelessWidget {
     final rect = face.boundingBox;
 
     // Calculate position relative to face
-    final left = rect.left * scaleX;
-    // Default: Position BELOW the face with a gap
-    double top = (rect.bottom * scaleY) + 20;
-    final width = rect.width * scaleX;
+    double left;
+    double top;
+    double width = rect.width * scaleX;
 
-    // Check if there's enough space at the bottom
-    // If the face is too low, position ABOVE the face instead
-    if (top + 200 > screenSize.height) {
-      // Assuming ~200px height for overlay
-      top = (rect.top * scaleY) - 220; // Position above with gap
+    if (isLandscape) {
+      // Landscape: Position to the RIGHT of the face
+      width = 280; // Fixed width for landscape overlay
+      left = (rect.right * scaleX) + 20;
+      top = (rect.top * scaleY);
+
+      // Check if there's enough space on the right
+      if (left + width > screenSize.width) {
+        // Position to the LEFT if no space on right
+        left = (rect.left * scaleX) - width - 20;
+      }
+    } else {
+      // Portrait: Position BELOW the face
+      left = rect.left * scaleX;
+      width = rect.width * scaleX;
+      top = (rect.bottom * scaleY) + 20;
+
+      // Check if there's enough space at the bottom
+      if (top + 200 > screenSize.height) {
+        top = (rect.top * scaleY) - 220; // Position above
+      }
     }
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      left: left,
-      top: top.clamp(
-        40.0,
-        screenSize.height - 250,
-      ), // Ensure it stays on screen
+      left: left.clamp(10.0, screenSize.width - width - 10),
+      top: top.clamp(40.0, screenSize.height - 250),
       child: SizedBox(
         width: width.clamp(200.0, screenSize.width - 40),
         child: _buildARBubble(context),
