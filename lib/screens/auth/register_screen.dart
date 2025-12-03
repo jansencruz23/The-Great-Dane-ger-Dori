@@ -1,3 +1,4 @@
+import 'package:dori/screens/patient/patient_home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,7 +6,6 @@ import '../../providers/user_provider.dart';
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
 import '../caregiver/caregiver_dashboard.dart';
-import '../patient/patient_home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});

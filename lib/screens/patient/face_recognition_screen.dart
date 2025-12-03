@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'package:dori/services/database_service.dart';
+import 'package:dori/services/speech_service.dart';
+import 'package:dori/services/summarization_service.dart';
+import 'package:dori/widgets/ar_overlay_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
@@ -8,14 +12,10 @@ import 'package:google_ml_kit/google_ml_kit.dart';
 import '../../main.dart' show cameras;
 import '../../providers/user_provider.dart';
 import '../../services/face_recognition_service.dart';
-import '../../services/database_service.dart';
-import '../../services/speech_service.dart';
-import '../../services/summarization_service.dart';
 import '../../models/known_face_model.dart';
 import '../../models/activity_log_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
-import '../../widgets/ar_overlay_widget.dart';
 import '../../widgets/face_detection_painter.dart';
 
 class FaceRecognitionScreen extends StatefulWidget {
