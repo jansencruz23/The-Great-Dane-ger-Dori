@@ -20,7 +20,15 @@ Future<void> main() async {
     if (AppConstants.geminiApiKey.isEmpty) {
       print('Warning: GEMINI_API_KEY not found in .env file');
     } else {
+      // Debug: Print API key info (first and last 4 chars only for security)
+      final keyLength = AppConstants.geminiApiKey.length;
+      final keyPreview = keyLength > 8 
+          ? '${AppConstants.geminiApiKey.substring(0, 4)}...${AppConstants.geminiApiKey.substring(keyLength - 4)}'
+          : 'TOO_SHORT';
+      print('✅ Gemini API Key loaded: $keyPreview (length: $keyLength)');
+      
       Gemini.init(apiKey: AppConstants.geminiApiKey);
+      print('✅ Gemini initialized successfully');
     }
   } catch (e) {
     print('Error loading .env file: $e');

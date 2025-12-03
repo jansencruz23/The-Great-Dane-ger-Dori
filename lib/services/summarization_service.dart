@@ -129,16 +129,49 @@ class SummarizationService {
   Future<String> generateDayByDaySummary(
     Map<String, List<ActivityLogModel>> activitiesByDate,
   ) async {
+    print('═══════════════════════════════════════════════════════');
+    print('🤖 GENERATING DAY-BY-DAY SUMMARY WITH GEMINI');
+    print('═══════════════════════════════════════════════════════');
+    print('Number of days with activities: ${activitiesByDate.length}');
+    
     if (activitiesByDate.isEmpty) {
+      print('⚠️  No activities to summarize!');
+      print('═══════════════════════════════════════════════════════\n');
       return 'No activities recorded yet. Your daily summaries will appear here.';
     }
 
+    // Print all summaries being sent to Gemini
+    print('\n📋 SUMMARIES TO BE SENT TO GEMINI:');
+    print('─────────────────────────────────────────────────────');
+    for (final entry in activitiesByDate.entries) {
+      print('Date: ${entry.key}');
+      for (final activity in entry.value) {
+        print('  • ${activity.personName}: ${activity.summary}');
+      }
+    }
+    print('═══════════════════════════════════════════════════════\n');
+
     try {
       final prompt = _buildDayByDayPrompt(activitiesByDate);
+      
+      print('📤 COMPLETE GEMINI PROMPT:');
+      print('┌─────────────────────────────────────────────────────┐');
+      print(prompt);
+      print('└─────────────────────────────────────────────────────┘');
+      print('Prompt length: ${prompt.length} characters\n');
+      
       final summary = await _callGeminiAPI(prompt);
+      
+      print('✅ RECEIVED FROM GEMINI:');
+      print('┌─────────────────────────────────────────────────────┐');
+      print(summary);
+      print('└─────────────────────────────────────────────────────┘');
+      print('═══════════════════════════════════════════════════════\n');
+      
       return summary;
     } catch (e) {
-      print('Error generating day-by-day summary: $e');
+      print('❌ ERROR generating day-by-day summary: $e');
+      print('Using fallback summary instead\n');
       return _generateFallbackDayByDay(activitiesByDate);
     }
   }

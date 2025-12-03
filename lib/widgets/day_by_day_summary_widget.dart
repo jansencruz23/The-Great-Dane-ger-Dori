@@ -230,31 +230,49 @@ class _DayByDaySummaryWidgetState extends State<DayByDaySummaryWidget>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(
-            width: 50,
-            height: 50,
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(
-                Colors.white.withValues(alpha: 0.8),
-              ),
-              strokeWidth: 3,
-            ),
+          // Animated bouncing dots
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 1200),
+            builder: (context, value, child) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(3, (index) {
+                  final delay = index * 0.2;
+                  final animValue = (value + delay) % 1.0;
+                  final bounce = (animValue < 0.5 
+                      ? animValue * 2 
+                      : 2 - (animValue * 2));
+                  
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Transform.translate(
+                      offset: Offset(0, -10 * bounce),
+                      child: Text(
+                        '●',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 32,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              );
+            },
+            onEnd: () {
+              // Restart animation
+              if (mounted) {
+                setState(() {});
+              }
+            },
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 30),
           Text(
             'Generating summary...',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.7),
               fontSize: 16,
-              letterSpacing: 0.3,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'This may take a moment',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.5),
-              fontSize: 12,
               letterSpacing: 0.3,
             ),
           ),

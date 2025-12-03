@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dori/services/database_service.dart';
 import 'package:dori/services/speech_service.dart';
 import 'package:dori/services/summarization_service.dart';
 import 'package:dori/widgets/ar_overlay_widget.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_gemini/flutter_gemini.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -698,33 +700,161 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
       final patientId = userProvider.currentUser!.uid;
 
-      // Fetch activity logs grouped by date (last 7 days)
-      final logsByDate = await _databaseService.getActivityLogsByDate(
-        patientId,
-        daysBack: 7,
-      );
+      print('\n\n');
+      print('🔍🔍🔍 FETCHING ALL SUMMARIES 🔍🔍🔍');
+      print('═══════════════════════════════════════════════════════');
+      print('PATIENT ID: $patientId');
+      print('═══════════════════════════════════════════════════════\n');
 
-      // Generate summary using Gemini
-      final summary = await _summarizationService.generateDayByDaySummary(
-        logsByDate,
-      );
+      // Fetch ALL summaries for this patient (simple query, no complex filtering)
+      final summaries = await _databaseService.getAllSummariesForPatient(patientId);
+      
+      print('\n📊 TOTAL SUMMARIES FOUND: ${summaries.length}');
+      print('═══════════════════════════════════════════════════════\n');
+      
+      if (summaries.isEmpty) {
+        print('⚠️  NO SUMMARIES FOUND FOR THIS PATIENT!');
+        print('   Patient ID: $patientId');
+        print('   Check if activity logs exist in Firebase');
+        print('═══════════════════════════════════════════════════════\n');
+        
+        if (mounted) {
+          setState(() {
+            _dayByDaySummary = 'No activities recorded yet. Your daily summaries will appear here.';
+            _isLoadingSummary = false;
+          });
+        }
+        return;
+      }
+
+      // Print all summaries
+      print('📋 ALL SUMMARY VALUES:');
+      print('─────────────────────────────────────────────────────');
+      for (var i = 0; i < summaries.length; i++) {
+        final summary = summaries[i];
+        print('\n${i + 1}. ${summary['personName']} (${summary['timestamp']})');
+        print('   Summary: ${summary['summary']}');
+        print('   Transcript: ${summary['rawTranscript'] ?? '(none)'}');
+      }
+      print('\n═══════════════════════════════════════════════════════\n');
+
+      // Group summaries by date for Gemini
+      final Map<String, List<Map<String, dynamic>>> summariesByDate = {};
+      for (var summary in summaries) {
+        final timestamp = summary['timestamp'] as Timestamp;
+        final date = timestamp.toDate();
+        final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        
+        if (!summariesByDate.containsKey(dateKey)) {
+          summariesByDate[dateKey] = [];
+        }
+        summariesByDate[dateKey]!.add(summary);
+      }
+
+      print('📅 GROUPED BY DATE: ${summariesByDate.length} days');
+      for (var entry in summariesByDate.entries) {
+        print('  ${entry.key}: ${entry.value.length} activities');
+      }
+      print('\n');
+
+      // Send to Gemini for narrative summary
+      print('🤖 SENDING TO GEMINI FOR NARRATIVE SUMMARY...\n');
+      
+      final geminiSummary = await _generateGeminiNarrative(summariesByDate);
+      
+      print('✅ RECEIVED FROM GEMINI:');
+      print('┌─────────────────────────────────────────────────────┐');
+      print(geminiSummary);
+      print('└─────────────────────────────────────────────────────┘\n');
 
       if (mounted) {
         setState(() {
-          _dayByDaySummary = summary;
+          _dayByDaySummary = geminiSummary;
           _isLoadingSummary = false;
         });
       }
     } catch (e) {
-      print('Error loading day-by-day summary: $e');
+      print('❌ ERROR: $e');
       if (mounted) {
         setState(() {
-          _dayByDaySummary =
-              'Unable to load summary at this time. Please try again later.';
+          _dayByDaySummary = 'Error loading summaries: $e';
           _isLoadingSummary = false;
         });
       }
     }
+  }
+
+  Future<String> _generateGeminiNarrative(Map<String, List<Map<String, dynamic>>> summariesByDate) async {
+    try {
+      // Build prompt for Gemini
+      final buffer = StringBuffer();
+      buffer.writeln('You are a warm, empathetic storyteller helping someone with memory challenges.');
+      buffer.writeln('Create a detailed day-by-day summary of their recent activities.');
+      buffer.writeln('Be descriptive but concise.\n');
+      
+      // Sort dates (most recent first)
+      final sortedDates = summariesByDate.keys.toList()..sort((a, b) => b.compareTo(a));
+      
+      buffer.writeln('Here are the activities:');
+      buffer.writeln();
+      
+      for (var dateStr in sortedDates) {
+        final activities = summariesByDate[dateStr]!;
+        final date = DateTime.parse(dateStr);
+        final dayName = _getDayName(date);
+        
+        buffer.writeln('$dayName ($dateStr):');
+        for (var activity in activities) {
+          final timestamp = (activity['timestamp'] as Timestamp).toDate();
+          final time = '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
+          buffer.writeln('  - $time with ${activity['personName']}: ${activity['summary']}');
+        }
+        buffer.writeln();
+      }
+      
+      buffer.writeln('Instructions:');
+      buffer.writeln('- Write 3-4 sentences for each day');
+      buffer.writeln('- Use warm, conversational language');
+      buffer.writeln('- Include specific times and details');
+      buffer.writeln('- Focus on positive moments and connections');
+      buffer.writeln('- Start each day with the day name (e.g., "Today", "Yesterday")');
+      buffer.writeln('- Write as a flowing narrative, not a list');
+      buffer.writeln();
+      buffer.writeln('Create a warm day-by-day summary:');
+      
+      final prompt = buffer.toString();
+      
+      print('📤 GEMINI PROMPT:');
+      print('─────────────────────────────────────────────────────');
+      print(prompt);
+      print('═══════════════════════════════════════════════════════\n');
+      
+      // Call Gemini directly
+      final value = await Gemini.instance.text(prompt);
+      final summary = value?.output?.trim() ?? '';
+      return summary;
+    } catch (e) {
+      print('❌ Gemini error: $e');
+      // Fallback to simple summary
+      return summariesByDate.entries.map((entry) {
+        final date = DateTime.parse(entry.key);
+        final dayName = _getDayName(date);
+        final people = entry.value.map((a) => a['personName']).toSet().join(', ');
+        return '$dayName: You spent time with $people.';
+      }).join('\n\n');
+    }
+  }
+
+  String _getDayName(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDate = DateTime(date.year, date.month, date.day);
+    final difference = today.difference(targetDate).inDays;
+
+    if (difference == 0) return 'Today';
+    if (difference == 1) return 'Yesterday';
+    if (difference < 7) return '$difference days ago';
+    return '${date.month}/${date.day}/${date.year}';
   }
 
 
