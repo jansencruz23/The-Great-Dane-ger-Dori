@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const Color primary = Color(0xFF6366F1);
-  static const Color secondary = Color(0xFF8B5CF6);
-  static const Color accent = Color(0xFF10B981);
-  static const Color background = Color(0xFFF9FAFB);
-  static const Color surface = Colors.white;
-  static const Color error = Color(0xFFEF4444);
-  static const Color textPrimary = Color(0xFF111827);
-  static const Color textSecondary = Color(0xFF6B7280);
-  static const Color arOverlay = Color(0xFF1F2937);
-  static const Color arOverlayBorder = Color(0xFF10B981);
+  // Coffee Shop Theme
+  static const Color primary = Color(0xFF8B6F47); // Warm tan/latte
+  static const Color secondary = Color(0xFFE8DCC8); // Cream/beige
+  static const Color accent = Color(0xFF3E2723); // Dark espresso brown
+  static const Color background = Color(0xFFF5F0E8); // Warm cream
+  static const Color surface = Color(0xFFEFE6D5); // Light beige
+  static const Color error = Color(0xFFD84315); // Burnt orange
+  static const Color textPrimary = Color(
+    0xFF2C1810,
+  ); // Dark brown (almost black)
+  static const Color textSecondary = Color(0xFF6D5D4B); // Medium brown
+  static const Color arOverlay = Color(0xFFD4C4A8); // Light tan
+  static const Color arOverlayBorder = Color(0xFF8B6F47); // Warm tan border
 }
 
 class AppConstants {
