@@ -95,9 +95,15 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isListeningForRelationship = false;
   String _voiceInputBuffer = '';
 
+  // Text Controllers
+  late TextEditingController _nameController;
+  late TextEditingController _relationshipController;
+
   @override
   void initState() {
     super.initState();
+    _nameController = TextEditingController();
+    _relationshipController = TextEditingController();
     _updateTime();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _updateTime();
@@ -117,6 +123,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   void dispose() {
     _processingTimer?.cancel();
     _clockTimer?.cancel();
+    _nameController.dispose();
+    _relationshipController.dispose();
     if (_isStreamActive && _cameraController != null) {
       _cameraController!.stopImageStream();
     }
@@ -366,6 +374,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     }
 
     // Handle unknown faces
+    if (_enrollmentMode != EnrollmentMode.normal) return;
+
     final unknownFaceEntry = results.entries
         .where((entry) => entry.value == null)
         .firstOrNull;
@@ -468,6 +478,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   // ==================== ENROLLMENT WORKFLOW ====================
 
   Future<void> _promptEnrollment(Face face) async {
+    _nameController.clear();
+    _relationshipController.clear();
     _unknownFace = null;
     _unknownFaceFirstSeen = null;
 
@@ -881,6 +893,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           child: Center(child: CameraPreview(_cameraController!)),
         ),
 
+        // Face Guideline Overlay
+        CustomPaint(painter: FaceGuidelinePainter(), size: Size.infinite),
+
         // Face detection overlay
         if (_detectedFaces.isNotEmpty)
           CustomPaint(
@@ -1134,7 +1149,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   }
 
   Widget _buildNameInputOverlay() {
-    final nameController = TextEditingController();
+    // Controller is now in state
     return Container(
       color: Colors.black.withOpacity(0.4), // Semi-transparent background
       child: SafeArea(
@@ -1189,8 +1204,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       TextField(
-                        controller: nameController,
+                        controller: _nameController,
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           labelText: 'Name',
@@ -1257,7 +1273,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                           ),
                           ElevatedButton(
                             onPressed: () =>
-                                _collectNameInput(nameController.text),
+                                _collectNameInput(_nameController.text),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: AppColors.primary,
@@ -1289,7 +1305,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   }
 
   Widget _buildRelationshipInputOverlay() {
-    final relationshipController = TextEditingController();
+    // Controller is now in state
     return Container(
       color: Colors.black.withOpacity(0.4), // Semi-transparent background
       child: SafeArea(
@@ -1344,8 +1360,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       TextField(
-                        controller: relationshipController,
+                        controller: _relationshipController,
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           labelText: 'e.g., Friend, Family',
@@ -1414,7 +1431,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                           ),
                           ElevatedButton(
                             onPressed: () => _collectRelationshipInput(
-                              relationshipController.text,
+                              _relationshipController.text,
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
@@ -1590,4 +1607,93 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       ),
     );
   }
+}
+
+class FaceGuidelinePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+
+    // Define the guideline area (oval)
+    // Adjust size based on orientation
+    final isPortrait = size.height > size.width;
+    final width = isPortrait ? size.width * 0.65 : size.height * 0.5;
+    final height = isPortrait ? size.height * 0.45 : size.height * 0.7;
+
+    final rect = Rect.fromCenter(center: center, width: width, height: height);
+
+    // 1. Draw semi-transparent oval
+    final ovalPaint = Paint()
+      ..color = Colors.white.withOpacity(0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    // Use a dashed effect for the oval (optional, but simple stroke is fine)
+    canvas.drawOval(rect, ovalPaint);
+
+    // 2. Draw corner brackets for emphasis
+    final bracketPaint = Paint()
+      ..color = AppColors.primary.withOpacity(0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4.0
+      ..strokeCap = StrokeCap.round;
+
+    final bracketLength = 40.0;
+    final cornerRadius = 20.0;
+
+    // Top Left
+    final pathTL = Path()
+      ..moveTo(rect.left, rect.top + bracketLength)
+      ..lineTo(rect.left, rect.top + cornerRadius)
+      ..quadraticBezierTo(
+        rect.left,
+        rect.top,
+        rect.left + cornerRadius,
+        rect.top,
+      )
+      ..lineTo(rect.left + bracketLength, rect.top);
+    canvas.drawPath(pathTL, bracketPaint);
+
+    // Top Right
+    final pathTR = Path()
+      ..moveTo(rect.right - bracketLength, rect.top)
+      ..lineTo(rect.right - cornerRadius, rect.top)
+      ..quadraticBezierTo(
+        rect.right,
+        rect.top,
+        rect.right,
+        rect.top + cornerRadius,
+      )
+      ..lineTo(rect.right, rect.top + bracketLength);
+    canvas.drawPath(pathTR, bracketPaint);
+
+    // Bottom Right
+    final pathBR = Path()
+      ..moveTo(rect.right, rect.bottom - bracketLength)
+      ..lineTo(rect.right, rect.bottom - cornerRadius)
+      ..quadraticBezierTo(
+        rect.right,
+        rect.bottom,
+        rect.right - cornerRadius,
+        rect.bottom,
+      )
+      ..lineTo(rect.right - bracketLength, rect.bottom);
+    canvas.drawPath(pathBR, bracketPaint);
+
+    // Bottom Left
+    final pathBL = Path()
+      ..moveTo(rect.left + bracketLength, rect.bottom)
+      ..lineTo(rect.left + cornerRadius, rect.bottom)
+      ..quadraticBezierTo(
+        rect.left,
+        rect.bottom,
+        rect.left,
+        rect.bottom - cornerRadius,
+      )
+      ..lineTo(rect.left, rect.bottom - bracketLength);
+    canvas.drawPath(pathBL, bracketPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
