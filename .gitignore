@@ -46,3 +46,6 @@ app.*.map.json
 
 # Large model files
 assets/models/arc_face.tflite
+
+# Environment variables
+.env

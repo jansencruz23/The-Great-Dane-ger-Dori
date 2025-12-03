@@ -15,9 +15,9 @@ class FaceRecognitionService {
   Interpreter? _interpreter;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableContours: true,
+      enableContours: false, // Disabled for performance
       enableClassification: false,
-      enableLandmarks: true,
+      enableLandmarks: false, // Disabled for performance
       enableTracking: true,
       performanceMode: FaceDetectorMode.fast,
     ),

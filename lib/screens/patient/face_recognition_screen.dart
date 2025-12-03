@@ -236,8 +236,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       } catch (e) {
         print('Error processing frame: $e');
       } finally {
-        // Add delay to throttle processing (process ~2 frames per second)
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Add delay to throttle processing (process ~10 frames per second)
+        await Future.delayed(const Duration(milliseconds: 100));
         _isProcessing = false;
       }
     });

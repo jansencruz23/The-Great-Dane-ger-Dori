@@ -1,15 +1,30 @@
 import 'package:dori/providers/user_provider.dart';
 import 'package:dori/screens/splash_screen.dart';
-import 'package:dori/utils/constants.dart' show AppColors;
+import 'package:dori/utils/constants.dart' show AppColors, AppConstants;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_gemini/flutter_gemini.dart';
 
 List<CameraDescription> cameras = [];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load environment variables from .env file
+  try {
+    await dotenv.load(fileName: ".env");
+    AppConstants.geminiApiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
+    if (AppConstants.geminiApiKey.isEmpty) {
+      print('Warning: GEMINI_API_KEY not found in .env file');
+    } else {
+      Gemini.init(apiKey: AppConstants.geminiApiKey);
+    }
+  } catch (e) {
+    print('Error loading .env file: $e');
+  }
 
   // Initialize Firebase
   await Firebase.initializeApp();

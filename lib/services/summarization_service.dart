@@ -1,6 +1,4 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import '../utils/constants.dart';
+import 'package:flutter_gemini/flutter_gemini.dart';
 import '../models/activity_log_model.dart';
 
 class SummarizationService {
@@ -40,36 +38,15 @@ class SummarizationService {
     }
   }
 
-  // Call Gemini API
+  // Call Gemini API using flutter_gemini
   Future<String> _callGeminiAPI(String prompt) async {
-    final url = '${AppConstants.geminiApiUrl}?key=${AppConstants.geminiApiKey}';
-
-    final response = await http.post(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'content': [
-          {
-            'parts': [
-              {'text': prompt},
-            ],
-          },
-        ],
-        'generationConfig': {
-          'temperature': 0.6,
-          'maxOutputTokens': 256,
-          'topP': 0.9,
-          'topK': 40,
-        },
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final text = data['candidates'][0]['content']['parts'][0]['text'];
-      return text.trim();
-    } else {
-      throw 'API request failed: ${response.statusCode}';
+    try {
+      final value = await Gemini.instance.text(prompt);
+      print('Gemini API Response: ${value?.output?.trim()}');
+      return value?.output?.trim() ?? '';
+    } catch (e) {
+      print('Gemini API Error: $e');
+      throw 'API request failed: $e';
     }
   }
 
