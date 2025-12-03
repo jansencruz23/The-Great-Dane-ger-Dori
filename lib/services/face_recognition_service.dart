@@ -178,12 +178,12 @@ class FaceRecognitionService {
       return null;
     }
 
-    print('DEBUG: Comparing against ${_knownFaces.length} known faces');
+    // print('DEBUG: Comparing against ${_knownFaces.length} known faces');
 
     KnownFaceModel? bestMatch;
     double bestSimilarity = 0.0;
-    double bestDistance = double.infinity;
-    int bestEmbeddingIndex = -1;
+    // double bestDistance = double.infinity;
+    // int bestEmbeddingIndex = -1;
 
     for (final knownFace in _knownFaces) {
       // Compare against ALL stored embeddings for this person
@@ -197,30 +197,30 @@ class FaceRecognitionService {
 
         final distance = Helpers.euclideanDistance(embedding, allEmbeddings[i]);
 
-        print(
-          'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
-        );
+        // print(
+        //   'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
+        // );
 
         // Use both metrics: high similarity AND low distance for stricter matching
         if (similarity >= AppConstants.faceRecognitionThreshold &&
             distance <= 0.7 &&
             similarity > bestSimilarity) {
           bestSimilarity = similarity;
-          bestDistance = distance;
+          // bestDistance = distance;
           bestMatch = knownFace;
-          bestEmbeddingIndex = i;
+          // bestEmbeddingIndex = i;
         }
       }
     }
 
     if (bestMatch != null) {
-      print(
-        'DEBUG: Best match: ${bestMatch.name} with similarity=$bestSimilarity, distance=$bestDistance (from angle $bestEmbeddingIndex)',
-      );
+      // print(
+      //   'DEBUG: Best match: ${bestMatch.name} with similarity=$bestSimilarity, distance=$bestDistance (from angle $bestEmbeddingIndex)',
+      // );
     } else {
-      print(
-        'DEBUG: No match found. Best similarity was: $bestSimilarity, distance: $bestDistance',
-      );
+      // print(
+      //   'DEBUG: No match found. Best similarity was: $bestSimilarity, distance: $bestDistance',
+      // );
     }
 
     return bestMatch;
@@ -293,9 +293,9 @@ class FaceRecognitionService {
       bytesPerRow: cameraImage.planes[0].bytesPerRow,
     );
 
-    print(
-      'DEBUG: Image size: ${imageSize.width}x${imageSize.height}, rotation: $imageRotation',
-    );
+    // print(
+    //   'DEBUG: Image size: ${imageSize.width}x${imageSize.height}, rotation: $imageRotation',
+    // );
 
     // 6. Return the InputImage
     return InputImage.fromBytes(bytes: bytes, metadata: inputImageMetadata);

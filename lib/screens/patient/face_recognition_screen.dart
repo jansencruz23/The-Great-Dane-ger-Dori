@@ -225,12 +225,12 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
             cameraImage,
           );
 
-          print('DEBUG: Detected ${results.length} faces');
-          for (var entry in results.entries) {
-            print(
-              'DEBUG: Face - Recognized as: ${entry.value?.name ?? "Unknown"}',
-            );
-          }
+          // print('DEBUG: Detected ${results.length} faces');
+          // for (var entry in results.entries) {
+          //   print(
+          //     'DEBUG: Face - Recognized as: ${entry.value?.name ?? "Unknown"}',
+          //   );
+          // }
 
           if (mounted) {
             setState(() {
@@ -244,8 +244,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       } catch (e) {
         print('Error processing frame: $e');
       } finally {
-        // Add delay to throttle processing (reduced to 50% for smoother camera)
-        await Future.delayed(const Duration(milliseconds: 200));
+        // Add delay to throttle processing (reduced to 2fps for maximum smoothness)
+        await Future.delayed(const Duration(milliseconds: 500));
         _isProcessing = false;
       }
     });
