@@ -31,14 +31,25 @@ class ArOverlayWidget extends StatelessWidget {
 
     final rect = face.boundingBox;
 
-    // Calculate position above the face
+    // Calculate position relative to face
     final left = rect.left * scaleX;
-    final top = (rect.top * scaleY) - 120; // Position above face
+    // Default: Position BELOW the face with a gap
+    double top = (rect.bottom * scaleY) + 20;
     final width = rect.width * scaleX;
+
+    // Check if there's enough space at the bottom
+    // If the face is too low, position ABOVE the face instead
+    if (top + 200 > screenSize.height) {
+      // Assuming ~200px height for overlay
+      top = (rect.top * scaleY) - 220; // Position above with gap
+    }
 
     return Positioned(
       left: left,
-      top: top.clamp(60.0, screenSize.height - 200),
+      top: top.clamp(
+        40.0,
+        screenSize.height - 250,
+      ), // Ensure it stays on screen
       child: SizedBox(
         width: width.clamp(200.0, screenSize.width - 40),
         child: _buildARBubble(context),
