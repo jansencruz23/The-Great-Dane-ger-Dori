@@ -53,6 +53,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
   List<KnownFaceModel> _knownFaces = [];
   Map<Face, KnownFaceModel?> _detectedFaces = {};
+  Map<String, List<ActivityLogModel>> _faceActivityLogs =
+      {}; // personId -> recent logs
   KnownFaceModel? _activeRecognition;
   String _transcription = '';
   DateTime? _interactionStartTime;
@@ -263,6 +265,19 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       _unknownFace = null;
       _unknownFaceEmbedding = null;
       _unknownFaceFirstSeen = null;
+
+      // Fetch activity logs for this person if not already cached
+      if (!_faceActivityLogs.containsKey(recognizedFace?.id)) {
+        final userProvider = Provider.of<UserProvider>(context, listen: false);
+        final logs = await _databaseService.getPersonActivityLogs(
+          userProvider.currentUser!.uid,
+          recognizedFace!.id,
+          limit: 1, // Only fetch 1 previous summary
+        );
+        setState(() {
+          _faceActivityLogs[recognizedFace.id] = logs;
+        });
+      }
 
       // Start recording if not already recording
       if (!_isRecording || _activeRecognition?.id != recognizedFace?.id) {
@@ -711,6 +726,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                 _cameraController!.value.previewSize!.height,
                 _cameraController!.value.previewSize!.width,
               ),
+              recentLogs: _faceActivityLogs[entry.value!.id] ?? [],
             );
           }
           return const SizedBox.shrink();

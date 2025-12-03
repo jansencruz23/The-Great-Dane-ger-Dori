@@ -180,7 +180,7 @@ class ArOverlayWidget extends StatelessWidget {
             const Divider(color: Colors.white30, height: 1),
             const SizedBox(height: 8),
             const Text(
-              'Recent Interactions:',
+              'Previous Interaction:',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: AppConstants.arSubtextSize - 1,
@@ -188,7 +188,7 @@ class ArOverlayWidget extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            ...recentLogs.take(3).map((log) {
+            ...recentLogs.take(1).map((log) {
               return Container(
                 margin: const EdgeInsets.only(bottom: 6),
                 padding: const EdgeInsets.all(8),
