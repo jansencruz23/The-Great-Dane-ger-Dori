@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
@@ -46,198 +47,267 @@ class ArOverlayWidget extends StatelessWidget {
   }
 
   Widget _buildARBubble(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.arOverlay.withOpacity(AppConstants.arBubbleOpacity),
-        borderRadius: BorderRadius.circular(AppConstants.arBubbleRadius),
-        border: Border.all(color: AppColors.arOverlayBorder, width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Name
-          Text(
-            knownFace.displayName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: AppConstants.arTextSize,
-              fontWeight: FontWeight.bold,
-              height: 1.2,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppConstants.arBubbleRadius),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.primary.withOpacity(
+              0.6,
+            ), // Jade Green with opacity
+            borderRadius: BorderRadius.circular(AppConstants.arBubbleRadius),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.3),
+              width: 1.5,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-
-          const SizedBox(height: 4),
-
-          // Relationship
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.arOverlayBorder.withValues(alpha: .3),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              knownFace.displayRelationship,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: AppConstants.arSubtextSize - 2,
-                fontWeight: FontWeight.w500,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            ],
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primary.withOpacity(0.7),
+                AppColors.secondary.withOpacity(0.4),
+              ],
             ),
           ),
-
-          const SizedBox(height: 8),
-
-          // Last seen info
-          Row(
+          padding: const EdgeInsets.all(AppConstants.arBubblePadding),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.access_time, color: Colors.white70, size: 14),
-              const SizedBox(width: 4),
-              Expanded(
+              // Name
+              Text(
+                knownFace.displayName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: AppConstants.arTextSize,
+                  fontWeight: FontWeight.bold,
+                  height: 1.2,
+                  shadows: [
+                    Shadow(
+                      offset: Offset(0, 1),
+                      blurRadius: 2,
+                      color: Colors.black45,
+                    ),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+
+              const SizedBox(height: 4),
+
+              // Relationship
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
                 child: Text(
-                  _getLastSeenText(),
+                  knownFace.displayRelationship,
                   style: const TextStyle(
-                    color: Colors.white70,
+                    color: Colors.white,
                     fontSize: AppConstants.arSubtextSize - 2,
+                    fontWeight: FontWeight.w600,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(0, 1),
+                        blurRadius: 2,
+                        color: Colors.black26,
+                      ),
+                    ],
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ],
-          ),
 
-          // Notes if available
-          if (knownFace.notes != null && knownFace.notes!.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .1),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Row(
+              const SizedBox(height: 8),
+
+              // Last seen info
+              Row(
                 children: [
                   const Icon(
-                    Icons.lightbulb_outline,
-                    color: Colors.amber,
+                    Icons.access_time,
+                    color: Colors.white,
                     size: 14,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(0, 1),
+                        blurRadius: 2,
+                        color: Colors.black26,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      knownFace.notes!,
+                      _getLastSeenText(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: AppConstants.arSubtextSize - 2,
-                        fontStyle: FontStyle.italic,
+                        fontWeight: FontWeight.w500,
+                        shadows: [
+                          Shadow(
+                            offset: Offset(0, 1),
+                            blurRadius: 2,
+                            color: Colors.black26,
+                          ),
+                        ],
                       ),
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
-            ),
-          ],
 
-          // Interaction count
-          if (knownFace.interactionCount > 0) ...[
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                const Icon(
-                  Icons.chat_bubble_outline,
-                  color: Colors.white60,
-                  size: 12,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  '${knownFace.interactionCount} ${knownFace.interactionCount == 1 ? 'conversation' : 'conversations'}',
-                  style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: AppConstants.arSubtextSize - 4,
+              // Notes if available
+              if (knownFace.notes != null && knownFace.notes!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.lightbulb_outline,
+                        color: Color(
+                          0xFFFFD54F,
+                        ), // Brighter amber for visibility
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          knownFace.notes!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: AppConstants.arSubtextSize - 2,
+                            fontStyle: FontStyle.italic,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
-            ),
-          ],
 
-          // Recent summaries
-          if (recentLogs.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            const Divider(color: Colors.white30, height: 1),
-            const SizedBox(height: 8),
-            const Text(
-              'Previous Interaction:',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: AppConstants.arSubtextSize - 1,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            ...recentLogs.take(1).map((log) {
-              return Container(
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .08),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: .15),
-                    width: 1,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              // Interaction count
+              if (knownFace.interactionCount > 0) ...[
+                const SizedBox(height: 6),
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.schedule,
-                          color: Colors.white54,
-                          size: 10,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          Helpers.getRelativeTime(log.timestamp),
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: AppConstants.arSubtextSize - 4,
-                          ),
-                        ),
-                      ],
+                    const Icon(
+                      Icons.chat_bubble_outline,
+                      color: Colors.white70,
+                      size: 12,
                     ),
-                    if (log.hasSummary) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        log.summary!,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: AppConstants.arSubtextSize - 2,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                    const SizedBox(width: 4),
+                    Text(
+                      '${knownFace.interactionCount} ${knownFace.interactionCount == 1 ? 'conversation' : 'conversations'}',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: AppConstants.arSubtextSize - 4,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ],
+                    ),
                   ],
                 ),
-              );
-            }),
-          ],
-        ],
+              ],
+
+              // Recent summaries
+              if (recentLogs.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Divider(color: Colors.white30, height: 1),
+                const SizedBox(height: 8),
+                const Text(
+                  'Previous Interaction:',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: AppConstants.arSubtextSize - 1,
+                    fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(0, 1),
+                        blurRadius: 2,
+                        color: Colors.black26,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ...recentLogs.take(1).map((log) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.schedule,
+                              color: Colors.white70,
+                              size: 10,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              Helpers.getRelativeTime(log.timestamp),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: AppConstants.arSubtextSize - 4,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (log.hasSummary) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            log.summary!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: AppConstants.arSubtextSize - 2,
+                              height: 1.3,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
