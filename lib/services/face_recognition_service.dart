@@ -17,9 +17,9 @@ class FaceRecognitionService {
     options: FaceDetectorOptions(
       enableContours: false, // Disabled for performance
       enableClassification: false,
-      enableLandmarks: false, // Disabled for performance
+      enableLandmarks: true, // Disabled for performance
       enableTracking: true,
-      performanceMode: FaceDetectorMode.fast,
+      performanceMode: FaceDetectorMode.accurate,
     ),
   );
 
@@ -363,18 +363,37 @@ class FaceRecognitionService {
     try {
       final rect = face.boundingBox;
 
-      // Add padding
-      final padding = 20;
-      final x = (rect.left - padding).clamp(0, image.width).toInt();
-      final y = (rect.top - padding).clamp(0, image.height).toInt();
-      final width = (rect.width + padding * 2)
-          .clamp(0, image.width - x)
-          .toInt();
-      final height = (rect.height + padding * 2)
-          .clamp(0, image.height - y)
+      // Calculate center of face
+      final centerX = rect.left + rect.width / 2;
+      final centerY = rect.top + rect.height / 2;
+
+      // Use the larger dimension to create a square
+      // Add padding factor (1.3x = 30% larger than face for context)
+      final size = (rect.width > rect.height ? rect.width : rect.height) * 1.3;
+
+      // Calculate square crop coordinates centered on face
+      final x = (centerX - size / 2).clamp(0, image.width).toInt();
+      final y = (centerY - size / 2).clamp(0, image.height).toInt();
+      final cropSize = size
+          .clamp(
+            0,
+            (image.width - x) < (image.height - y)
+                ? (image.width - x)
+                : (image.height - y),
+          )
           .toInt();
 
-      return img.copyCrop(image, x: x, y: y, width: width, height: height);
+      // Crop square region
+      final cropped = img.copyCrop(
+        image,
+        x: x,
+        y: y,
+        width: cropSize,
+        height: cropSize,
+      );
+
+      // Resize to 112x112 (no distortion since it's already square)
+      return img.copyResize(cropped, width: 112, height: 112);
     } catch (e) {
       print('Error cropping face: $e');
       return null;

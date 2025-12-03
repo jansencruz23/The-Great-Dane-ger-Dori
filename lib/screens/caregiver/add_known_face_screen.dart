@@ -31,7 +31,7 @@ class _AddKnownFaceScreenState extends State<AddKnownFaceScreen> {
       FaceRecognitionService();
   final ImagePicker _imagePicker = ImagePicker();
 
-  File? _selectedImage;
+  List<File> _selectedImages = [];
   bool _isProcessing = false;
 
   // Live enrollment data
@@ -68,21 +68,43 @@ class _AddKnownFaceScreenState extends State<AddKnownFaceScreen> {
 
   Future<void> _pickImage(ImageSource source) async {
     try {
-      final XFile? image = await _imagePicker.pickImage(
-        source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
-      );
+      if (source == ImageSource.gallery) {
+        // Use multi-select for gallery
+        // Higher quality settings to match live enrollment accuracy
+        final List<XFile> images = await _imagePicker.pickMultiImage(
+          maxWidth: 2048,
+          maxHeight: 2048,
+          imageQuality: 100, // No compression to preserve facial details
+        );
 
-      if (image != null) {
-        setState(() {
-          _selectedImage = File(image.path);
-        });
+        if (images.isNotEmpty) {
+          setState(() {
+            _selectedImages = images.map((xFile) => File(xFile.path)).toList();
+          });
+        }
+      } else {
+        // Use single select for camera
+        // Higher quality settings to match live enrollment accuracy
+        final XFile? image = await _imagePicker.pickImage(
+          source: source,
+          maxWidth: 2048,
+          maxHeight: 2048,
+          imageQuality: 100, // No compression to preserve facial details
+        );
+
+        if (image != null) {
+          setState(() {
+            _selectedImages = [File(image.path)];
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
-        Helpers.showSnackBar(context, 'Error picking image: $e', isError: true);
+        Helpers.showSnackBar(
+          context,
+          'Error picking image(s): $e',
+          isError: true,
+        );
       }
     }
   }
@@ -115,52 +137,71 @@ class _AddKnownFaceScreenState extends State<AddKnownFaceScreen> {
   Future<void> _saveFace() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedImage == null) {
-      Helpers.showSnackBar(context, 'Please select a photo', isError: true);
+    if (_selectedImages.isEmpty) {
+      Helpers.showSnackBar(
+        context,
+        'Please select at least one photo',
+        isError: true,
+      );
       return;
     }
 
     setState(() => _isProcessing = true);
 
     try {
-      // Detect face in image
-      final faces = await _faceRecognitionService.detectFacesInFile(
-        _selectedImage!,
-      );
+      final List<List<double>> allEmbeddings = [];
 
-      if (faces.isEmpty) {
-        throw 'No face detected in the image. Please choose a clear photo with a visible face.';
+      // Process each selected image
+      for (int i = 0; i < _selectedImages.length; i++) {
+        final selectedImage = _selectedImages[i];
+
+        // Detect face in image
+        final faces = await _faceRecognitionService.detectFacesInFile(
+          selectedImage,
+        );
+
+        if (faces.isEmpty) {
+          continue;
+        }
+
+        if (faces.length > 1) {
+          continue;
+        }
+
+        // Convert File to img.Image
+        final bytes = await selectedImage.readAsBytes();
+        var image = img.decodeImage(bytes);
+
+        if (image == null) {
+          throw 'Failed to process image ${i + 1}';
+        }
+
+        // Fix orientation (handle EXIF rotation)
+        image = img.bakeOrientation(image);
+
+        // Rotate 90 degrees counterclockwise to match live enrollment orientation
+        image = img.copyRotate(image, angle: -90);
+
+        // Extract face embedding
+        final embedding = await _faceRecognitionService.extractFaceEmbedding(
+          image,
+          faces.first,
+        );
+
+        if (embedding == null) {
+          throw 'Failed to extract face features from image ${i + 1}';
+        }
+
+        allEmbeddings.add(embedding);
       }
 
-      if (faces.length > 1) {
-        throw 'Multiple faces detected. Please choose a photo with only one person.';
-      }
-
-      // Convert File to img.Image
-      final bytes = await _selectedImage!.readAsBytes();
-      final image = img.decodeImage(bytes);
-
-      if (image == null) {
-        throw 'Failed to process image';
-      }
-
-      // Extract face embedding
-      final embedding = await _faceRecognitionService.extractFaceEmbedding(
-        image,
-        faces.first,
-      );
-
-      if (embedding == null) {
-        throw 'Failed to extract face features';
-      }
-
-      // Create known face model (with single embedding for now - will be multiple in live enrollment)
+      // Create known face model with all embeddings
       final knownFace = KnownFaceModel(
         id: const Uuid().v4(),
         patientId: widget.patientId,
         name: _nameController.text.trim(),
         relationship: _relationshipController.text.trim(),
-        embeddings: [embedding], // Wrap single embedding in a list
+        embeddings: allEmbeddings,
         notes: _notesController.text.trim().isNotEmpty
             ? _notesController.text.trim()
             : null,
@@ -168,10 +209,16 @@ class _AddKnownFaceScreenState extends State<AddKnownFaceScreen> {
       );
 
       // Save to database
-      await _databaseService.addKnownFace(knownFace, imageFile: _selectedImage);
+      await _databaseService.addKnownFace(
+        knownFace,
+        imageFiles: _selectedImages,
+      );
 
       if (mounted) {
-        Helpers.showSnackBar(context, 'Face added successfully!');
+        Helpers.showSnackBar(
+          context,
+          'Face added successfully with ${allEmbeddings.length} image(s)!',
+        );
         Navigator.of(context).pop();
       }
     } catch (e) {
@@ -283,7 +330,7 @@ class _AddKnownFaceScreenState extends State<AddKnownFaceScreen> {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey.shade300, width: 2),
                   ),
-                  child: _selectedImage == null && _capturedImages == null
+                  child: _selectedImages.isEmpty && _capturedImages == null
                       ? Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -294,17 +341,66 @@ class _AddKnownFaceScreenState extends State<AddKnownFaceScreen> {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              'Upload from Gallery',
+                              'Upload from Gallery (Multiple)',
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(color: Colors.grey.shade600),
                             ),
                           ],
                         )
-                      : _selectedImage != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.file(_selectedImage!, fit: BoxFit.cover),
-                        )
+                      : _selectedImages.isNotEmpty
+                      ? _selectedImages.length == 1
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Image.file(
+                                  _selectedImages[0],
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: GridView.builder(
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 3,
+                                        crossAxisSpacing: 8,
+                                        mainAxisSpacing: 8,
+                                      ),
+                                  itemCount: _selectedImages.length,
+                                  itemBuilder: (context, index) {
+                                    return ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          Image.file(
+                                            _selectedImages[index],
+                                            fit: BoxFit.cover,
+                                          ),
+                                          Positioned(
+                                            top: 4,
+                                            right: 4,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(4),
+                                              decoration: const BoxDecoration(
+                                                color: AppColors.primary,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Text(
+                                                '${index + 1}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              )
                       : Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
