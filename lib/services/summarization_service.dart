@@ -32,7 +32,9 @@ class SummarizationService {
 
     try {
       final prompt = _buildDailyRecapPrompt(activities);
+      print('DEBUG: Prompt sent to Gemini:\n$prompt');
       final recap = await _callGeminiAPI(prompt);
+      print('DEBUG: Gemini response: $recap');
       return recap;
     } catch (e) {
       print('Error generating daily recap: $e');

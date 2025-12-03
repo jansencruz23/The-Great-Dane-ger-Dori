@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AppColors {
   static const Color primary = Color(0xFF6366F1);
@@ -40,8 +41,9 @@ class AppConstants {
   static const String knownFacesCollection = 'known_faces';
   static const String activityLogsCollection = 'activity_logs';
 
+
   // Gemini API Settings
-  static const String geminiApiKey = 'YOUR_GEMINI_API_KEY_HERE';
+  static String get geminiApiKey => dotenv.env['GEMINI_API_KEY'] ?? '';
   static const String geminiApiUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 

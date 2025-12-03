@@ -17,6 +17,9 @@ import '../../models/activity_log_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
 import '../../widgets/face_detection_painter.dart';
+import '../../widgets/face_detection_painter.dart';
+import '../../widgets/day_by_day_summary_popup.dart';
+import '../../widgets/memory_archive_popup.dart';
 
 class FaceRecognitionScreen extends StatefulWidget {
   const FaceRecognitionScreen({super.key});
@@ -43,6 +46,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   String _transcription = '';
   DateTime? _interactionStartTime;
   bool _isStreamActive = false;
+  bool _isMemoryArchiveVisible = false;
+  bool _isDailySummaryVisible = false;
 
   Timer? _processingTimer;
 
@@ -338,6 +343,12 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           return const SizedBox.shrink();
         }),
 
+        // Memory Archive pop-up
+        if (_isMemoryArchiveVisible) const MemoryArchivePopup(),
+
+        // Day-by-day summary pop-up
+        if (_isDailySummaryVisible) const DayByDaySummaryPopup(),
+
         // Top controls
         SafeArea(
           child: Padding(
@@ -351,6 +362,34 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                     IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _isMemoryArchiveVisible
+                            ? Icons.close
+                            : Icons.history_edu,
+                        color: Colors.white,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _isMemoryArchiveVisible = !_isMemoryArchiveVisible;
+                          if (_isMemoryArchiveVisible) _isDailySummaryVisible = false;
+                        });
+                      },
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _isDailySummaryVisible
+                            ? Icons.close
+                            : Icons.summarize,
+                        color: Colors.white,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _isDailySummaryVisible = !_isDailySummaryVisible;
+                          if (_isDailySummaryVisible) _isMemoryArchiveVisible = false;
+                        });
+                      },
                     ),
                     if (_isRecording)
                       Container(

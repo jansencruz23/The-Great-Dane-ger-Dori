@@ -230,28 +230,52 @@ class DatabaseService {
     int? limit,
   }) async {
     try {
+      // Query by patientId only to avoid requiring a composite index
       Query query = _firestore
           .collection(AppConstants.activityLogsCollection)
-          .where('patientId', isEqualTo: patientId)
-          .orderBy('timestamp', descending: true);
-
-      if (startDate != null) {
-        query = query.where('timestamp', isGreaterThanOrEqualTo: startDate);
-      }
-
-      if (endDate != null) {
-        query = query.where('timestamp', isLessThanOrEqualTo: endDate);
-      }
-
-      if (limit != null) {
-        query = query.limit(limit);
-      }
+          .where('patientId', isEqualTo: patientId);
 
       final querySnapshot = await query.get();
 
-      return querySnapshot.docs
+      var logs = querySnapshot.docs
           .map((doc) => ActivityLogModel.fromFirestore(doc))
           .toList();
+
+      print('DEBUG: Fetched ${logs.length} total logs from Firebase for patient $patientId');
+      for (var log in logs) {
+        print('DEBUG: Raw log - ${log.personName} at ${log.timestamp}');
+      }
+
+      // Sort by timestamp descending
+      logs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+      // Filter by date range
+      if (startDate != null) {
+        print('DEBUG: Filtering logs after $startDate');
+        logs = logs
+            .where((l) =>
+                l.timestamp.isAfter(startDate) ||
+                l.timestamp.isAtSameMomentAs(startDate))
+            .toList();
+        print('DEBUG: After startDate filter: ${logs.length} logs');
+      }
+
+      if (endDate != null) {
+        print('DEBUG: Filtering logs before $endDate');
+        logs = logs
+            .where((l) =>
+                l.timestamp.isBefore(endDate) ||
+                l.timestamp.isAtSameMomentAs(endDate))
+            .toList();
+        print('DEBUG: After endDate filter: ${logs.length} logs');
+      }
+
+      // Apply limit
+      if (limit != null && logs.length > limit) {
+        logs = logs.take(limit).toList();
+      }
+
+      return logs;
     } catch (e) {
       throw 'Error fetching activity logs: $e';
     }
@@ -272,14 +296,12 @@ class DatabaseService {
   }
 
   Future<List<ActivityLogModel>> getTodayActivityLogs(String patientId) async {
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
+    print('DEBUG: Fetching ALL activity logs for patient $patientId');
 
+    // Fetch all logs without date filtering to use existing test data
     return await getActivityLogs(
       patientId,
-      startDate: startOfDay,
-      endDate: endOfDay,
+      // No date filters - get everything
     );
   }
 
