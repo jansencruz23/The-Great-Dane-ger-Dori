@@ -16,7 +16,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -24,6 +24,11 @@ class _LoginScreenState extends State<LoginScreen>
   bool _isLoading = false;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+
+  // Animation controllers for floating shapes
+  late List<AnimationController> _floatControllers;
+  late List<Animation<Offset>> _floatAnimations;
+  final List<Offset> _randomDirections = [];
 
   @override
   void initState() {
@@ -36,6 +41,37 @@ class _LoginScreenState extends State<LoginScreen>
       CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
     );
     _animationController.forward();
+
+    // Initialize 10 floating animation controllers
+    _floatControllers = List.generate(
+      10,
+      (index) => AnimationController(
+        duration: Duration(seconds: 5 + (index % 10) * 2),
+        vsync: this,
+      )..repeat(reverse: true),
+    );
+
+    // Generate random directions
+    final random = DateTime.now().millisecondsSinceEpoch;
+    for (int i = 0; i < 10; i++) {
+      final dx = (((random + i * 17) % 120) - 60).toDouble();
+      final dy = (((random + i * 23) % 120) - 60).toDouble();
+      _randomDirections.add(Offset(dx, dy));
+    }
+
+    _floatAnimations = List.generate(
+      10,
+      (index) =>
+          Tween<Offset>(
+            begin: Offset.zero,
+            end: _randomDirections[index],
+          ).animate(
+            CurvedAnimation(
+              parent: _floatControllers[index],
+              curve: Curves.easeInOut,
+            ),
+          ),
+    );
   }
 
   @override
@@ -43,6 +79,9 @@ class _LoginScreenState extends State<LoginScreen>
     _emailController.dispose();
     _passwordController.dispose();
     _animationController.dispose();
+    for (var controller in _floatControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -86,203 +125,324 @@ class _LoginScreenState extends State<LoginScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        color: AppColors.background,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF1A4D4A), // Deep jade
+              const Color(0xFF2A6D68), // Rich jade
+              const Color(0xFF3A8D86), // Bright jade
+              const Color(0xFF2A6D68), // Rich jade
+            ],
+            stops: const [0.0, 0.35, 0.65, 1.0],
+          ),
+        ),
         child: Stack(
           children: [
             // Neomorphic background shapes - Rounded rectangles
-            Positioned(
-              top: 80,
-              left: 30,
-              child: Container(
-                width: 180,
-                height: 120,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(40),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.background, const Color(0xFFE8DCC8)],
+            AnimatedBuilder(
+              animation: _floatAnimations[0],
+              builder: (context, child) => Positioned(
+                top: 80 + _floatAnimations[0].value.dy,
+                left: 30 + _floatAnimations[0].value.dx,
+                child: Container(
+                  width: 180,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(40),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD4C4A8),
-                      offset: const Offset(12, 12),
-                      blurRadius: 24,
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      offset: const Offset(-12, -12),
-                      blurRadius: 24,
-                    ),
-                  ],
                 ),
               ),
             ),
-            Positioned(
-              bottom: 120,
-              right: 20,
-              child: Container(
-                width: 160,
-                height: 160,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(50),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.background, const Color(0xFFE8DCC8)],
+            AnimatedBuilder(
+              animation: _floatAnimations[1],
+              builder: (context, child) => Positioned(
+                bottom: 120 + _floatAnimations[1].value.dy,
+                right: 20 + _floatAnimations[1].value.dx,
+                child: Container(
+                  width: 160,
+                  height: 160,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(50),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD4C4A8),
-                      offset: const Offset(12, 12),
-                      blurRadius: 24,
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      offset: const Offset(-12, -12),
-                      blurRadius: 24,
-                    ),
-                  ],
                 ),
               ),
             ),
-            Positioned(
-              top: 280,
-              right: 60,
-              child: Container(
-                width: 140,
-                height: 90,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(35),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.background, const Color(0xFFE8DCC8)],
+            AnimatedBuilder(
+              animation: _floatAnimations[2],
+              builder: (context, child) => Positioned(
+                top: 280 + _floatAnimations[2].value.dy,
+                right: 60 + _floatAnimations[2].value.dx,
+                child: Container(
+                  width: 140,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(35),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD4C4A8),
-                      offset: const Offset(12, 12),
-                      blurRadius: 24,
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      offset: const Offset(-12, -12),
-                      blurRadius: 24,
-                    ),
-                  ],
                 ),
               ),
             ),
-            Positioned(
-              top: 200,
-              left: 40,
-              child: Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(30),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.background, const Color(0xFFE8DCC8)],
+            AnimatedBuilder(
+              animation: _floatAnimations[3],
+              builder: (context, child) => Positioned(
+                top: 200 + _floatAnimations[3].value.dy,
+                left: 40 + _floatAnimations[3].value.dx,
+                child: Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(30),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD4C4A8),
-                      offset: const Offset(12, 12),
-                      blurRadius: 24,
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      offset: const Offset(-12, -12),
-                      blurRadius: 24,
-                    ),
-                  ],
                 ),
               ),
             ),
-            Positioned(
-              bottom: 300,
-              left: 20,
-              child: Container(
-                width: 120,
-                height: 80,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(32),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.background, const Color(0xFFE8DCC8)],
+            AnimatedBuilder(
+              animation: _floatAnimations[4],
+              builder: (context, child) => Positioned(
+                bottom: 300 + _floatAnimations[4].value.dy,
+                left: 20 + _floatAnimations[4].value.dx,
+                child: Container(
+                  width: 120,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(32),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD4C4A8),
-                      offset: const Offset(12, 12),
-                      blurRadius: 24,
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      offset: const Offset(-12, -12),
-                      blurRadius: 24,
-                    ),
-                  ],
                 ),
               ),
             ),
-            Positioned(
-              top: 450,
-              right: 40,
-              child: Container(
-                width: 110,
-                height: 110,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(38),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.background, const Color(0xFFE8DCC8)],
+            AnimatedBuilder(
+              animation: _floatAnimations[5],
+              builder: (context, child) => Positioned(
+                top: 450 + _floatAnimations[5].value.dy,
+                right: 40 + _floatAnimations[5].value.dx,
+                child: Container(
+                  width: 110,
+                  height: 110,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(38),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD4C4A8),
-                      offset: const Offset(12, 12),
-                      blurRadius: 24,
-                    ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      offset: const Offset(-12, -12),
-                      blurRadius: 24,
-                    ),
-                  ],
                 ),
               ),
             ),
-            Positioned(
-              bottom: 50,
-              left: 60,
-              child: Container(
-                width: 130,
-                height: 95,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(36),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.background, const Color(0xFFE8DCC8)],
+            AnimatedBuilder(
+              animation: _floatAnimations[6],
+              builder: (context, child) => Positioned(
+                bottom: 50 + _floatAnimations[6].value.dy,
+                left: 60 + _floatAnimations[6].value.dx,
+                child: Container(
+                  width: 130,
+                  height: 95,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(36),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFD4C4A8),
-                      offset: const Offset(12, 12),
-                      blurRadius: 24,
+                ),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _floatAnimations[7],
+              builder: (context, child) => Positioned(
+                top: 150 + _floatAnimations[7].value.dy,
+                right: 20 + _floatAnimations[7].value.dx,
+                child: Container(
+                  width: 90,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
                     ),
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      offset: const Offset(-12, -12),
-                      blurRadius: 24,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _floatAnimations[8],
+              builder: (context, child) => Positioned(
+                bottom: 200 + _floatAnimations[8].value.dy,
+                right: 50 + _floatAnimations[8].value.dx,
+                child: Container(
+                  width: 105,
+                  height: 85,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(34),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
                     ),
-                  ],
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _floatAnimations[9],
+              builder: (context, child) => Positioned(
+                top: 360 + _floatAnimations[9].value.dy,
+                left: 25 + _floatAnimations[9].value.dx,
+                child: Container(
+                  width: 115,
+                  height: 115,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(42),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.background, const Color(0xFF5AA99E)],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1A4D4A),
+                        offset: const Offset(12, 12),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        offset: const Offset(-12, -12),
+                        blurRadius: 24,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -297,53 +457,63 @@ class _LoginScreenState extends State<LoginScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // App Icon - BLUE
+                        // App Icon - Jade Glassmorphism
                         Center(
                           child: Container(
                             width: 120,
                             height: 120,
                             decoration: BoxDecoration(
-                              color: AppColors.primary,
+                              color: const Color(
+                                0xFF3A8D86,
+                              ).withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(30),
+                              border: Border.all(
+                                color: const Color(
+                                  0xFF5AA99E,
+                                ).withValues(alpha: 0.5),
+                                width: 2,
+                              ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: AppColors.primary.withValues(
-                                    alpha: 0.3,
-                                  ),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 10),
+                                  color: const Color(
+                                    0xFF1A4D4A,
+                                  ).withValues(alpha: 0.4),
+                                  blurRadius: 30,
+                                  offset: const Offset(0, 15),
                                 ),
                               ],
                             ),
                             child: Icon(
                               Icons.face,
                               size: 70,
-                              color: Colors.white,
+                              color: const Color(0xFFC5F5F0),
                             ),
                           ),
                         ),
 
                         const SizedBox(height: 40),
 
-                        // Main Login Card - CREAM WHITE with Neomorphism
+                        // Main Login Card - Jade Glassmorphism
                         Container(
                           decoration: BoxDecoration(
-                            color: AppColors.background,
+                            color: const Color(
+                              0xFF2A6D68,
+                            ).withValues(alpha: 0.25),
                             borderRadius: BorderRadius.circular(30),
+                            border: Border.all(
+                              color: const Color(
+                                0xFF5AA99E,
+                              ).withValues(alpha: 0.4),
+                              width: 1.5,
+                            ),
                             boxShadow: [
-                              // Dark shadow (bottom-right)
                               BoxShadow(
-                                color: const Color(0xFFD4C4A8),
-                                blurRadius: 30,
-                                offset: const Offset(15, 15),
-                                spreadRadius: 0,
-                              ),
-                              // Light shadow (top-left)
-                              BoxShadow(
-                                color: Colors.white,
-                                blurRadius: 30,
-                                offset: const Offset(-15, -15),
-                                spreadRadius: 0,
+                                color: const Color(
+                                  0xFF0D2624,
+                                ).withValues(alpha: 0.5),
+                                blurRadius: 40,
+                                offset: const Offset(0, 20),
+                                spreadRadius: 5,
                               ),
                             ],
                           ),
@@ -361,7 +531,7 @@ class _LoginScreenState extends State<LoginScreen>
                                     style: TextStyle(
                                       fontSize: 32,
                                       fontWeight: FontWeight.bold,
-                                      color: AppColors.textPrimary,
+                                      color: const Color(0xFFC5F5F0),
                                       letterSpacing: 0.5,
                                     ),
                                     textAlign: TextAlign.center,
@@ -373,25 +543,33 @@ class _LoginScreenState extends State<LoginScreen>
                                     'Sign in to continue',
                                     style: TextStyle(
                                       fontSize: 16,
-                                      color: AppColors.textSecondary,
+                                      color: const Color(0xFF9DE5DC),
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
 
                                   const SizedBox(height: 24),
 
-                                  // Email field - YELLOW
+                                  // Email field - Jade Glassmorphism
                                   Container(
                                     decoration: BoxDecoration(
-                                      color: AppColors.secondary,
+                                      color: const Color(
+                                        0xFF5AA99E,
+                                      ).withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: const Color(
+                                          0xFF5AA99E,
+                                        ).withValues(alpha: 0.4),
+                                        width: 1.5,
+                                      ),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: AppColors.secondary.withValues(
-                                            alpha: 0.3,
-                                          ),
-                                          blurRadius: 10,
-                                          offset: const Offset(0, 4),
+                                          color: const Color(
+                                            0xFF1A4D4A,
+                                          ).withValues(alpha: 0.3),
+                                          blurRadius: 15,
+                                          offset: const Offset(0, 6),
                                         ),
                                       ],
                                     ),
@@ -399,18 +577,18 @@ class _LoginScreenState extends State<LoginScreen>
                                       controller: _emailController,
                                       keyboardType: TextInputType.emailAddress,
                                       style: const TextStyle(
-                                        color: Colors.black,
+                                        color: Color(0xFFC5F5F0),
                                       ),
                                       decoration: InputDecoration(
                                         labelText: AppStrings.emailHint,
                                         labelStyle: TextStyle(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.6,
-                                          ),
+                                          color: const Color(
+                                            0xFF9DE5DC,
+                                          ).withValues(alpha: 0.8),
                                         ),
                                         prefixIcon: const Icon(
                                           Icons.email_outlined,
-                                          color: Colors.black,
+                                          color: Color(0xFF9DE5DC),
                                         ),
                                         border: InputBorder.none,
                                         contentPadding: const EdgeInsets.all(
@@ -431,41 +609,52 @@ class _LoginScreenState extends State<LoginScreen>
 
                                   const SizedBox(height: 16),
 
-                                  // Password field - LIGHT BLUE
+                                  // Password field - Jade Glassmorphism
                                   Container(
                                     decoration: BoxDecoration(
-                                      color: AppColors.primary.withValues(
-                                        alpha: 0.25,
-                                      ),
+                                      color: const Color(
+                                        0xFF3A8D86,
+                                      ).withValues(alpha: 0.2),
                                       borderRadius: BorderRadius.circular(16),
                                       border: Border.all(
-                                        color: AppColors.primary,
-                                        width: 2,
+                                        color: const Color(
+                                          0xFF5AA99E,
+                                        ).withValues(alpha: 0.5),
+                                        width: 1.5,
                                       ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(
+                                            0xFF1A4D4A,
+                                          ).withValues(alpha: 0.3),
+                                          blurRadius: 15,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ],
                                     ),
                                     child: TextFormField(
                                       controller: _passwordController,
                                       obscureText: !_isPasswordVisible,
                                       style: const TextStyle(
-                                        color: Colors.black,
+                                        color: Color(0xFFC5F5F0),
                                       ),
                                       decoration: InputDecoration(
                                         labelText: AppStrings.passwordHint,
                                         labelStyle: TextStyle(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.6,
-                                          ),
+                                          color: const Color(
+                                            0xFF9DE5DC,
+                                          ).withValues(alpha: 0.8),
                                         ),
                                         prefixIcon: const Icon(
                                           Icons.lock_outline,
-                                          color: Colors.black,
+                                          color: Color(0xFF9DE5DC),
                                         ),
                                         suffixIcon: IconButton(
                                           icon: Icon(
                                             _isPasswordVisible
                                                 ? Icons.visibility_off
                                                 : Icons.visibility,
-                                            color: Colors.black,
+                                            color: const Color(0xFF9DE5DC),
                                           ),
                                           onPressed: () {
                                             setState(() {
@@ -484,7 +673,7 @@ class _LoginScreenState extends State<LoginScreen>
                                           return 'Please enter your password';
                                         }
                                         if (value.length < 6) {
-                                          return 'Password must be at least 6 characters.';
+                                          return 'Password must be at least 6 characters';
                                         }
                                         return null;
                                       },
@@ -493,21 +682,27 @@ class _LoginScreenState extends State<LoginScreen>
 
                                   const SizedBox(height: 24),
 
-                                  // Login button - DARK BLUE
+                                  // Login button - Dark Jade
                                   GestureDetector(
                                     onTap: _isLoading ? null : _handleLogin,
                                     child: Container(
                                       height: 58,
                                       decoration: BoxDecoration(
-                                        color: AppColors.accent,
+                                        color: const Color(0xFF1A4D4A),
                                         borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: const Color(
+                                            0xFF3A8D86,
+                                          ).withValues(alpha: 0.5),
+                                          width: 1.5,
+                                        ),
                                         boxShadow: [
                                           BoxShadow(
-                                            color: AppColors.accent.withValues(
-                                              alpha: 0.4,
-                                            ),
-                                            blurRadius: 15,
-                                            offset: const Offset(0, 6),
+                                            color: const Color(
+                                              0xFF0D2624,
+                                            ).withValues(alpha: 0.6),
+                                            blurRadius: 20,
+                                            offset: const Offset(0, 8),
                                           ),
                                         ],
                                       ),
@@ -521,7 +716,7 @@ class _LoginScreenState extends State<LoginScreen>
                                                   valueColor:
                                                       AlwaysStoppedAnimation<
                                                         Color
-                                                      >(Colors.white),
+                                                      >(Color(0xFFC5F5F0)),
                                                 ),
                                               )
                                             : const Text(
@@ -529,7 +724,7 @@ class _LoginScreenState extends State<LoginScreen>
                                                 style: TextStyle(
                                                   fontSize: 18,
                                                   fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
+                                                  color: Color(0xFFC5F5F0),
                                                 ),
                                               ),
                                       ),
@@ -545,7 +740,7 @@ class _LoginScreenState extends State<LoginScreen>
                                       Text(
                                         AppStrings.noAccountText,
                                         style: TextStyle(
-                                          color: AppColors.textSecondary,
+                                          color: const Color(0xFF9DE5DC),
                                           fontSize: 14,
                                         ),
                                       ),
@@ -561,7 +756,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         child: Text(
                                           'Sign Up',
                                           style: TextStyle(
-                                            color: AppColors.accent,
+                                            color: const Color(0xFF5AA99E),
                                             fontSize: 14,
                                             fontWeight: FontWeight.bold,
                                           ),
