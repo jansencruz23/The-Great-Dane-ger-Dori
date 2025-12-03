@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "928284356376",
+    "project_id": "dory-test-1d2ed",
+    "storage_bucket": "dory-test-1d2ed.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:928284356376:android:1b21f8937b1836b795f86d",
+        "android_client_info": {
+          "package_name": "com.example.dori"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWVPW8Wg55nGQ8FILQ-tNWxnid85VTzRQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:928284356376:android:8b73aaad069ebc7d95f86d",
+        "android_client_info": {
+          "package_name": "com.example.dory_test"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWVPW8Wg55nGQ8FILQ-tNWxnid85VTzRQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
