@@ -305,6 +305,29 @@ class DatabaseService {
     );
   }
 
+  Future<List<ActivityLogModel>> getPersonActivityLogs(
+    String patientId,
+    String personId, {
+    int limit = 3,
+  }) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection(AppConstants.activityLogsCollection)
+          .where('patientId', isEqualTo: patientId)
+          .where('personId', isEqualTo: personId)
+          .orderBy('timestamp', descending: true)
+          .limit(limit)
+          .get();
+
+      return querySnapshot.docs
+          .map((doc) => ActivityLogModel.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      print('Error fetching person activity logs: $e');
+      return [];
+    }
+  }
+
   // ==================== STORAGE OPERATIONS ====================
 
   Future<String> uploadFaceImage(String patientId, File imageFile) async {

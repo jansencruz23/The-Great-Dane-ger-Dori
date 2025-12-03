@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:dori/services/database_service.dart';
 import 'package:dori/services/speech_service.dart';
 import 'package:dori/services/summarization_service.dart';
@@ -8,6 +9,8 @@ import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
 
 import '../../main.dart' show cameras;
 import '../../providers/user_provider.dart';
@@ -20,6 +23,17 @@ import '../../widgets/face_detection_painter.dart';
 import '../../widgets/face_detection_painter.dart';
 import '../../widgets/day_by_day_summary_popup.dart';
 import '../../widgets/memory_archive_popup.dart';
+
+enum FacePose { center, left, right, up, down }
+
+enum EnrollmentMode {
+  normal,
+  prompting,
+  collectingName,
+  collectingRelationship,
+  capturingAngles,
+  saving,
+}
 
 class FaceRecognitionScreen extends StatefulWidget {
   const FaceRecognitionScreen({super.key});
@@ -50,6 +64,28 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isDailySummaryVisible = false;
 
   Timer? _processingTimer;
+
+  // Enrollment mode state
+  EnrollmentMode _enrollmentMode = EnrollmentMode.normal;
+
+  // Unknown face tracking
+  Face? _unknownFace;
+  List<double>? _unknownFaceEmbedding;
+  DateTime? _unknownFaceFirstSeen;
+  static const _unknownFaceDebounceTime = Duration(seconds: 3);
+
+  // Enrollment data
+  String _enrollmentName = '';
+  String _enrollmentRelationship = '';
+  Map<FacePose, File> _enrollmentImages = {};
+  Map<FacePose, List<double>> _enrollmentEmbeddings = {};
+  FacePose? _currentEnrollmentPose;
+  DateTime? _lastEnrollmentCapture;
+
+  // Voice input state
+  bool _isListeningForName = false;
+  bool _isListeningForRelationship = false;
+  String _voiceInputBuffer = '';
 
   @override
   void initState() {
@@ -103,9 +139,18 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
       // Load known faces
       final userProvider = Provider.of<UserProvider>(context, listen: false);
-      _knownFaces = await _databaseService.getKnownFaces(
-        userProvider.currentUser!.uid,
-      );
+      final patientId = userProvider.currentUser!.uid;
+      print('DEBUG: Loading known faces for patient ID: $patientId');
+
+      _knownFaces = await _databaseService.getKnownFaces(patientId);
+      print('DEBUG: Loaded ${_knownFaces.length} known faces');
+
+      for (final face in _knownFaces) {
+        print(
+          'DEBUG: - ${face.name} (${face.getAllEmbeddings().length} embeddings)',
+        );
+      }
+
       _faceRecognitionService.updateKnownFaces(_knownFaces);
 
       // Initialize camera
@@ -154,25 +199,44 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       _isProcessing = true;
 
       try {
-        // Process the camera frame
-        final results = await _faceRecognitionService.processCameraFrame(
-          cameraImage,
-        );
+        // Handle enrollment mode - capture poses
+        if (_enrollmentMode == EnrollmentMode.capturingAngles) {
+          final faces = await _faceRecognitionService.detectFaces(cameraImage);
 
-        print('DEBUG: Detected ${results.length} faces');
-        for (var entry in results.entries) {
-          print(
-            'DEBUG: Face - Recognized as: ${entry.value?.name ?? "Unknown"}',
-          );
+          if (faces.isNotEmpty && mounted) {
+            final face = faces.first;
+            final pose = _detectPose(face);
+
+            setState(() => _currentEnrollmentPose = pose);
+
+            // Auto-capture if pose is valid and not yet captured
+            if (pose != null && !_enrollmentEmbeddings.containsKey(pose)) {
+              await _attemptEnrollmentCapture(pose, cameraImage, face);
+            }
+          }
         }
+        // Normal recognition mode
+        else if (_enrollmentMode == EnrollmentMode.normal) {
+          // Process the camera frame
+          final results = await _faceRecognitionService.processCameraFrame(
+            cameraImage,
+          );
 
-        if (mounted) {
-          setState(() {
-            _detectedFaces = results;
-          });
+          print('DEBUG: Detected ${results.length} faces');
+          for (var entry in results.entries) {
+            print(
+              'DEBUG: Face - Recognized as: ${entry.value?.name ?? "Unknown"}',
+            );
+          }
 
-          // Handle face recognition
-          await _handleFaceRecognition(results);
+          if (mounted) {
+            setState(() {
+              _detectedFaces = results;
+            });
+
+            // Handle face recognition
+            await _handleFaceRecognition(results);
+          }
         }
       } catch (e) {
         print('Error processing frame: $e');
@@ -187,25 +251,66 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   Future<void> _handleFaceRecognition(
     Map<Face, KnownFaceModel?> results,
   ) async {
+    // Skip if in enrollment mode
+    if (_enrollmentMode != EnrollmentMode.normal) {
+      return;
+    }
+
     final recognizedFaces = results.values
         .where((face) => face != null)
         .toList();
 
-    if (recognizedFaces.isEmpty) {
-      if (_isRecording) {
-        await _stopRecording();
+    // Handle recognized faces
+    if (recognizedFaces.isNotEmpty) {
+      final recognizedFace = recognizedFaces.first;
+
+      // Clear unknown face tracking since we recognized someone
+      _unknownFace = null;
+      _unknownFaceEmbedding = null;
+      _unknownFaceFirstSeen = null;
+
+      // Start recording if not already recording
+      if (!_isRecording || _activeRecognition?.id != recognizedFace?.id) {
+        if (_isRecording) {
+          await _stopRecording();
+        }
+        await _startRecording(recognizedFace!);
       }
       return;
     }
 
-    final recognizedFace = recognizedFaces.first;
+    // Handle unknown faces
+    final unknownFaceEntry = results.entries
+        .where((entry) => entry.value == null)
+        .firstOrNull;
 
-    // Start recording if not already recording
-    if (!_isRecording || _activeRecognition?.id != recognizedFace?.id) {
+    if (unknownFaceEntry != null) {
+      final now = DateTime.now();
+
+      // If this is a new unknown face, start tracking
+      if (_unknownFace == null || _unknownFaceFirstSeen == null) {
+        _unknownFace = unknownFaceEntry.key;
+        _unknownFaceFirstSeen = now;
+        _unknownFaceEmbedding = null; // Will extract in next frame
+        print('DEBUG: Started tracking unknown face');
+      }
+      // If same unknown face has been present for debounce time, prompt enrollment
+      else if (now.difference(_unknownFaceFirstSeen!) >=
+          _unknownFaceDebounceTime) {
+        print(
+          'DEBUG: Unknown face persisted for ${_unknownFaceDebounceTime.inSeconds}s, prompting enrollment',
+        );
+        await _promptEnrollment(unknownFaceEntry.key);
+      }
+    } else {
+      // No faces detected, clear unknown face tracking
+      _unknownFace = null;
+      _unknownFaceEmbedding = null;
+      _unknownFaceFirstSeen = null;
+
       if (_isRecording) {
         await _stopRecording();
       }
-      await _startRecording(recognizedFace!);
     }
   }
 
@@ -276,6 +381,270 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     }
   }
 
+  // ==================== ENROLLMENT WORKFLOW ====================
+
+  Future<void> _promptEnrollment(Face face) async {
+    _unknownFace = null;
+    _unknownFaceFirstSeen = null;
+
+    setState(() => _enrollmentMode = EnrollmentMode.prompting);
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Unknown Face Detected'),
+        content: const Text('Would you like to add this person?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Not Now'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Yes, Add'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      setState(() => _enrollmentMode = EnrollmentMode.collectingName);
+    } else {
+      setState(() => _enrollmentMode = EnrollmentMode.normal);
+    }
+  }
+
+  Future<void> _collectNameInput(String name) async {
+    if (name.trim().isEmpty) return;
+    _enrollmentName = name.trim();
+    setState(() => _enrollmentMode = EnrollmentMode.collectingRelationship);
+  }
+
+  Future<void> _collectRelationshipInput(String relationship) async {
+    if (relationship.trim().isEmpty) return;
+    _enrollmentRelationship = relationship.trim();
+    setState(() => _enrollmentMode = EnrollmentMode.capturingAngles);
+  }
+
+  void _cancelEnrollment() {
+    setState(() {
+      _enrollmentMode = EnrollmentMode.normal;
+      _enrollmentImages.clear();
+      _enrollmentEmbeddings.clear();
+      _enrollmentName = '';
+      _enrollmentRelationship = '';
+    });
+  }
+
+  Future<void> _saveEnrollment() async {
+    setState(() => _enrollmentMode = EnrollmentMode.saving);
+
+    try {
+      final userProvider = Provider.of<UserProvider>(context, listen: false);
+
+      final newFace = KnownFaceModel(
+        id: '',
+        patientId: userProvider.currentUser!.uid,
+        name: _enrollmentName,
+        relationship: _enrollmentRelationship,
+        imageUrls: [],
+        embeddings: _enrollmentEmbeddings.values.toList(),
+        createdAt: DateTime.now(),
+        lastSeenAt: null,
+        interactionCount: 0,
+      );
+
+      await _databaseService.addKnownFace(
+        newFace,
+        imageFiles: _enrollmentImages.values.toList(),
+      );
+
+      _knownFaces = await _databaseService.getKnownFaces(
+        userProvider.currentUser!.uid,
+      );
+      print(
+        'DEBUG: Reloaded ${_knownFaces.length} known faces after enrollment',
+      );
+      _faceRecognitionService.updateKnownFaces(_knownFaces);
+
+      if (mounted) {
+        Helpers.showSnackBar(context, 'Successfully added $_enrollmentName!');
+        setState(() {
+          _enrollmentMode = EnrollmentMode.normal;
+          _enrollmentImages.clear();
+          _enrollmentEmbeddings.clear();
+        });
+      }
+    } catch (e) {
+      print('Error saving enrollment: $e');
+      if (mounted) {
+        Helpers.showSnackBar(context, 'Failed to save: $e', isError: true);
+        setState(() => _enrollmentMode = EnrollmentMode.normal);
+      }
+    }
+  }
+
+  // Voice input helpers
+  Future<void> _startVoiceInput(bool isForName) async {
+    setState(() {
+      if (isForName) {
+        _isListeningForName = true;
+      } else {
+        _isListeningForRelationship = true;
+      }
+      _voiceInputBuffer = '';
+    });
+
+    try {
+      await _speechService.startListening(
+        onResult: (text) {
+          setState(() => _voiceInputBuffer = text);
+        },
+      );
+    } catch (e) {
+      print('Error starting voice input: $e');
+    }
+  }
+
+  Future<void> _stopVoiceInput(bool isForName) async {
+    try {
+      final result = await _speechService.stopListening();
+
+      if (result.isNotEmpty) {
+        if (isForName) {
+          await _collectNameInput(result);
+        } else {
+          await _collectRelationshipInput(result);
+        }
+      }
+    } catch (e) {
+      print('Error stopping voice input: $e');
+    } finally {
+      setState(() {
+        _isListeningForName = false;
+        _isListeningForRelationship = false;
+        _voiceInputBuffer = '';
+      });
+    }
+  }
+
+  // Pose detection
+  FacePose? _detectPose(Face face) {
+    final yaw = face.headEulerAngleY ?? 0;
+    final pitch = face.headEulerAngleX ?? 0;
+
+    if (yaw.abs() < 8 && pitch.abs() < 8) {
+      return FacePose.center;
+    } else if (yaw < -20 && yaw > -40) {
+      return FacePose.left;
+    } else if (yaw > 20 && yaw < 40) {
+      return FacePose.right;
+    } else if (pitch < -10 && pitch > -30) {
+      return FacePose.up;
+    } else if (pitch > 8 && pitch < 25) {
+      return FacePose.down;
+    }
+    return null;
+  }
+
+  // Image conversion helpers
+  img.Image? _convertToImage(CameraImage cameraImage) {
+    try {
+      if (cameraImage.format.group == ImageFormatGroup.yuv420) {
+        return _convertYUV420(cameraImage);
+      } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+        return _convertBGRA8888(cameraImage);
+      }
+      return null;
+    } catch (e) {
+      print('Error converting camera image: $e');
+      return null;
+    }
+  }
+
+  img.Image _convertYUV420(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+    final imgImage = img.Image(width: width, height: height);
+
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final yIndex = y * yPlane.bytesPerRow + x;
+        final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
+        final yValue = yPlane.bytes[yIndex];
+        final uValue = uPlane.bytes[uvIndex];
+        final vValue = vPlane.bytes[uvIndex];
+        final r = (yValue + 1.370705 * (vValue - 128)).clamp(0, 255).toInt();
+        final g =
+            (yValue - 0.337633 * (uValue - 128) - 0.698001 * (vValue - 128))
+                .clamp(0, 255)
+                .toInt();
+        final b = (yValue + 1.732446 * (uValue - 128)).clamp(0, 255).toInt();
+        imgImage.setPixelRgba(x, y, r, g, b, 255);
+      }
+    }
+    return imgImage;
+  }
+
+  img.Image _convertBGRA8888(CameraImage image) {
+    return img.Image.fromBytes(
+      width: image.width,
+      height: image.height,
+      bytes: image.planes[0].bytes.buffer,
+      order: img.ChannelOrder.bgra,
+    );
+  }
+
+  // Enrollment capture
+  Future<void> _attemptEnrollmentCapture(
+    FacePose pose,
+    CameraImage cameraImage,
+    Face face,
+  ) async {
+    if (_lastEnrollmentCapture != null &&
+        DateTime.now().difference(_lastEnrollmentCapture!) <
+            const Duration(seconds: 2)) {
+      return;
+    }
+
+    try {
+      final image = _convertToImage(cameraImage);
+      if (image == null) return;
+
+      final embedding = await _faceRecognitionService.extractFaceEmbedding(
+        image,
+        face,
+      );
+      if (embedding == null) return;
+
+      final tempDir = await getTemporaryDirectory();
+      final fileName = '${_enrollmentName}_${pose.name}.jpg';
+      final file = File('${tempDir.path}/$fileName');
+      final jpg = img.encodeJpg(image);
+      await file.writeAsBytes(jpg);
+
+      setState(() {
+        _enrollmentImages[pose] = file;
+        _enrollmentEmbeddings[pose] = embedding;
+        _lastEnrollmentCapture = DateTime.now();
+      });
+
+      print(
+        'DEBUG: Captured ${pose.name} for enrollment (${_enrollmentEmbeddings.length}/5)',
+      );
+
+      if (_enrollmentEmbeddings.length == 5) {
+        await _saveEnrollment();
+      }
+    } catch (e) {
+      print('Error capturing enrollment: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -312,7 +681,16 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       children: [
         // Camera preview
         Transform.scale(
-          scale: deviceRatio / cameraRatio,
+          scale: () {
+            var scale = 1.0;
+            if (size.height > size.width) {
+              scale = deviceRatio * cameraRatio;
+            } else {
+              scale = deviceRatio / cameraRatio;
+            }
+            if (scale < 1) scale = 1 / scale;
+            return scale;
+          }(),
           child: Center(child: CameraPreview(_cameraController!)),
         ),
 
@@ -475,7 +853,261 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
             ),
           ),
         ),
+
+        // Enrollment UI Overlays
+        if (_enrollmentMode == EnrollmentMode.collectingName)
+          _buildNameInputOverlay(),
+        if (_enrollmentMode == EnrollmentMode.collectingRelationship)
+          _buildRelationshipInputOverlay(),
+        if (_enrollmentMode == EnrollmentMode.capturingAngles)
+          _buildEnrollmentCaptureOverlay(),
+        if (_enrollmentMode == EnrollmentMode.saving) _buildSavingOverlay(),
       ],
+    );
+  }
+
+  Widget _buildNameInputOverlay() {
+    final nameController = TextEditingController();
+    return Container(
+      color: Colors.black.withValues(alpha: 0.8),
+      child: SafeArea(
+        child: Center(
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Enter Person\'s Name',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Name',
+                      border: OutlineInputBorder(),
+                    ),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isListeningForName
+                              ? () => _stopVoiceInput(true)
+                              : () => _startVoiceInput(true),
+                          icon: Icon(
+                            _isListeningForName ? Icons.stop : Icons.mic,
+                          ),
+                          label: Text(
+                            _isListeningForName
+                                ? _voiceInputBuffer.isEmpty
+                                      ? 'Listening...'
+                                      : _voiceInputBuffer
+                                : 'Voice Input',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      TextButton(
+                        onPressed: _cancelEnrollment,
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => _collectNameInput(nameController.text),
+                        child: const Text('Next'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRelationshipInputOverlay() {
+    final relationshipController = TextEditingController();
+    return Container(
+      color: Colors.black.withValues(alpha: 0.8),
+      child: SafeArea(
+        child: Center(
+          child: Card(
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Relationship',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: relationshipController,
+                    decoration: const InputDecoration(
+                      labelText: 'e.g., Friend, Family',
+                      border: OutlineInputBorder(),
+                    ),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isListeningForRelationship
+                              ? () => _stopVoiceInput(false)
+                              : () => _startVoiceInput(false),
+                          icon: Icon(
+                            _isListeningForRelationship
+                                ? Icons.stop
+                                : Icons.mic,
+                          ),
+                          label: Text(
+                            _isListeningForRelationship
+                                ? _voiceInputBuffer.isEmpty
+                                      ? 'Listening...'
+                                      : _voiceInputBuffer
+                                : 'Voice Input',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      TextButton(
+                        onPressed: _cancelEnrollment,
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => _collectRelationshipInput(
+                          relationshipController.text,
+                        ),
+                        child: const Text('Start Capture'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnrollmentCaptureOverlay() {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'Enrolling: $_enrollmentName',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${_enrollmentEmbeddings.length}/5 poses captured',
+                    style: const TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: FacePose.values.map((pose) {
+                final captured = _enrollmentEmbeddings.containsKey(pose);
+                final active = _currentEnrollmentPose == pose;
+                return Column(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: captured
+                            ? AppColors.accent
+                            : (active ? Colors.yellow : Colors.grey),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white,
+                          width: active ? 3 : 1,
+                        ),
+                      ),
+                      child: Icon(
+                        captured ? Icons.check : Icons.circle,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      pose.name.toUpperCase(),
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton(
+              onPressed: _cancelEnrollment,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white),
+              ),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSavingOverlay() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.8),
+      child: const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'Saving enrollment...',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

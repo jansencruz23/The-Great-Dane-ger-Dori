@@ -185,7 +185,7 @@ class FaceRecognitionService {
 
         // Use both metrics: high similarity AND low distance for stricter matching
         if (similarity >= AppConstants.faceRecognitionThreshold &&
-            distance <= 0.8 &&
+            distance <= 0.7 &&
             similarity > bestSimilarity) {
           bestSimilarity = similarity;
           bestDistance = distance;
@@ -382,10 +382,11 @@ class FaceRecognitionService {
       for (int x = 0; x < 112; x++) {
         final pixel = image.getPixel(x, y);
 
-        // Normalize to [-1, 1]
-        final r = (pixel.r / 127.5) - 1.0;
-        final g = (pixel.g / 127.5) - 1.0;
-        final b = (pixel.b / 127.5) - 1.0;
+        // Normalize to [-1, 1] using correct MobileFaceNet preprocessing
+        // Formula: (pixel - 127.5) / 128
+        final r = (pixel.r - 127.5) / 128.0;
+        final g = (pixel.g - 127.5) / 128.0;
+        final b = (pixel.b - 127.5) / 128.0;
 
         // Fill both batch slots with the same image
         input[0][y][x][0] = r;
