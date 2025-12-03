@@ -21,7 +21,7 @@ class SummarizationService {
     try {
       print('DEBUG: Attempting to call Gemini API for summary...');
       final prompt = _buildSummaryPrompt(transcript, personName, relationship);
-      final summary = await _callGeminiAPI(prompt);
+      final summary = await _callGeminiAPI(prompt); // This is problem
       print('DEBUG: Successfully got summary from Gemini');
       return summary;
     } catch (e) {
