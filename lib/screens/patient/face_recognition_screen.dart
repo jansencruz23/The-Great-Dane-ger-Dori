@@ -204,9 +204,14 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       _isProcessing = true;
 
       try {
+        final rotation = _getInputImageRotation();
+
         // Handle enrollment mode - capture poses
         if (_enrollmentMode == EnrollmentMode.capturingAngles) {
-          final faces = await _faceRecognitionService.detectFaces(cameraImage);
+          final faces = await _faceRecognitionService.detectFaces(
+            cameraImage,
+            rotation,
+          );
 
           if (faces.isNotEmpty && mounted) {
             final face = faces.first;
@@ -225,14 +230,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           // Process the camera frame
           final results = await _faceRecognitionService.processCameraFrame(
             cameraImage,
+            rotation,
           );
-
-          // print('DEBUG: Detected ${results.length} faces');
-          // for (var entry in results.entries) {
-          //   print(
-          //     'DEBUG: Face - Recognized as: ${entry.value?.name ?? "Unknown"}',
-          //   );
-          // }
 
           if (mounted) {
             setState(() {
@@ -251,6 +250,20 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         _isProcessing = false;
       }
     });
+  }
+
+  InputImageRotation _getInputImageRotation() {
+    final orientation = MediaQuery.of(context).orientation;
+
+    // For most phones, sensor is 90 degrees (Portrait)
+    // If orientation is Portrait, we need 90 deg rotation
+    // If orientation is Landscape, we need 0 deg rotation (relative to sensor)
+
+    if (orientation == Orientation.landscape) {
+      return InputImageRotation.rotation0deg;
+    } else {
+      return InputImageRotation.rotation90deg;
+    }
   }
 
   Future<void> _handleFaceRecognition(
@@ -861,10 +874,16 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           CustomPaint(
             painter: FaceDetectionPainter(
               faces: _detectedFaces.keys.toList(),
-              imageSize: Size(
-                _cameraController!.value.previewSize!.height,
-                _cameraController!.value.previewSize!.width,
-              ),
+              imageSize:
+                  MediaQuery.of(context).orientation == Orientation.landscape
+                  ? Size(
+                      _cameraController!.value.previewSize!.width,
+                      _cameraController!.value.previewSize!.height,
+                    )
+                  : Size(
+                      _cameraController!.value.previewSize!.height,
+                      _cameraController!.value.previewSize!.width,
+                    ),
             ),
           ),
 
@@ -874,10 +893,16 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
             return ArOverlayWidget(
               face: entry.key,
               knownFace: entry.value!,
-              imageSize: Size(
-                _cameraController!.value.previewSize!.height,
-                _cameraController!.value.previewSize!.width,
-              ),
+              imageSize:
+                  MediaQuery.of(context).orientation == Orientation.landscape
+                  ? Size(
+                      _cameraController!.value.previewSize!.width,
+                      _cameraController!.value.previewSize!.height,
+                    )
+                  : Size(
+                      _cameraController!.value.previewSize!.height,
+                      _cameraController!.value.previewSize!.width,
+                    ),
               recentLogs: _faceActivityLogs[entry.value!.id] ?? [],
             );
           }

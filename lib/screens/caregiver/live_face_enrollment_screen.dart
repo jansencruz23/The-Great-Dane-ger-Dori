@@ -115,8 +115,13 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
       _isProcessing = true;
 
       try {
+        final rotation = _getInputImageRotation();
+
         // Detect faces
-        final faces = await _faceRecognitionService.detectFaces(cameraImage);
+        final faces = await _faceRecognitionService.detectFaces(
+          cameraImage,
+          rotation,
+        );
 
         if (faces.isNotEmpty && mounted) {
           final face = faces.first;
@@ -146,6 +151,16 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
         _isProcessing = false;
       }
     });
+  }
+
+  InputImageRotation _getInputImageRotation() {
+    final orientation = MediaQuery.of(context).orientation;
+
+    if (orientation == Orientation.landscape) {
+      return InputImageRotation.rotation0deg;
+    } else {
+      return InputImageRotation.rotation90deg;
+    }
   }
 
   FacePose? _detectPose(Face face) {

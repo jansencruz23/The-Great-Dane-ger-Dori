@@ -75,13 +75,16 @@ class FaceRecognitionService {
   }
 
   // Detect faces in camera image
-  Future<List<Face>> detectFaces(CameraImage cameraImage) async {
+  Future<List<Face>> detectFaces(
+    CameraImage cameraImage,
+    InputImageRotation rotation,
+  ) async {
     if (!_isInitialized) {
       throw 'Face recognition not initialized';
     }
 
     try {
-      final inputImage = _convertCameraImage(cameraImage);
+      final inputImage = _convertCameraImage(cameraImage, rotation);
       final faces = await _faceDetector.processImage(inputImage);
       return faces;
     } catch (e) {
@@ -226,15 +229,26 @@ class FaceRecognitionService {
     return bestMatch;
   }
 
+  // ... (detectFacesInFile remains unchanged)
+
+  // ... (extractFaceEmbedding remains unchanged)
+
+  // ... (extractFaceEmbeddingFromYUV remains unchanged)
+
+  // ... (_runInference remains unchanged)
+
+  // ... (recognizeFace remains unchanged)
+
   // Process camera frame for recognition
   Future<Map<Face, KnownFaceModel?>> processCameraFrame(
     CameraImage cameraImage,
+    InputImageRotation rotation,
   ) async {
     if (!_isInitialized) return {};
 
     try {
       // Detect faces
-      final faces = await detectFaces(cameraImage);
+      final faces = await detectFaces(cameraImage, rotation);
       if (faces.isEmpty) return {};
 
       // Process each face
@@ -261,7 +275,10 @@ class FaceRecognitionService {
   }
 
   // Helper: Convert CameraImage to InputImage for ML Kit
-  InputImage _convertCameraImage(CameraImage cameraImage) {
+  InputImage _convertCameraImage(
+    CameraImage cameraImage,
+    InputImageRotation rotation,
+  ) {
     // 1. Get the raw bytes
     final WriteBuffer allBytes = WriteBuffer();
     for (final Plane plane in cameraImage.planes) {
@@ -275,10 +292,8 @@ class FaceRecognitionService {
       cameraImage.height.toDouble(),
     );
 
-    // 3. Handle rotation - Android typically needs 90 degrees in portrait mode
-    final InputImageRotation imageRotation = Platform.isAndroid
-        ? InputImageRotation.rotation90deg
-        : InputImageRotation.rotation0deg;
+    // 3. Handle rotation (passed from caller)
+    // final InputImageRotation imageRotation = rotation;
 
     // 4. Handle format (Android defaults to NV21, iOS to BGRA8888)
     final InputImageFormat inputImageFormat = Platform.isIOS
@@ -288,14 +303,10 @@ class FaceRecognitionService {
     // 5. Create the new metadata object
     final inputImageMetadata = InputImageMetadata(
       size: imageSize,
-      rotation: imageRotation,
+      rotation: rotation,
       format: inputImageFormat,
       bytesPerRow: cameraImage.planes[0].bytesPerRow,
     );
-
-    // print(
-    //   'DEBUG: Image size: ${imageSize.width}x${imageSize.height}, rotation: $imageRotation',
-    // );
 
     // 6. Return the InputImage
     return InputImage.fromBytes(bytes: bytes, metadata: inputImageMetadata);
