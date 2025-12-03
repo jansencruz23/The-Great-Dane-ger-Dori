@@ -8,7 +8,7 @@ import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
 import '../auth/login_screen.dart';
 import 'patient_management_screen.dart';
-import 'add_known_face_screen.dart';
+import 'manage_known_faces_screen.dart';
 import 'activity_history_screen.dart';
 
 class CaregiverDashboard extends StatefulWidget {
@@ -331,13 +331,15 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) =>
-                              AddKnownFaceScreen(patientId: patient.uid),
+                          builder: (_) => ManageKnownFacesScreen(
+                            patientId: patient.uid,
+                            patientName: patient.name,
+                          ),
                         ),
                       );
                     },
                     icon: const Icon(Icons.face, size: 18),
-                    label: const Text('Add Face'),
+                    label: const Text('Manage Faces'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppColors.primary,
                     ),
@@ -396,7 +398,10 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 Navigator.of(context).pop();
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => AddKnownFaceScreen(patientId: patient.uid),
+                    builder: (_) => ManageKnownFacesScreen(
+                      patientId: patient.uid,
+                      patientName: patient.name,
+                    ),
                   ),
                 );
               },
