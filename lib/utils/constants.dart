@@ -16,7 +16,7 @@ class AppColors {
 class AppConstants {
   // Face Recognition Thresholds
   static const double faceRecognitionThreshold =
-      0.05; // Temporarily lowered for testing
+      0.70; // Temporarily lowered for testing
   static const double faceDetectionConfidence = 0.2;
   static const int maxFacesPerFrame = 5;
 

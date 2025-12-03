@@ -129,15 +129,9 @@ class FaceRecognitionService {
       // Run inference
       _interpreter!.run(input, output);
 
-      // Average both batch outputs for potentially better quality
-      final embedding1 = List<double>.from(output[0]);
-      final embedding2 = List<double>.from(output[1]);
-
-      // Average the two embeddings
-      final embedding = List.generate(
-        embedding1.length,
-        (i) => (embedding1[i] + embedding2[i]) / 2.0,
-      );
+      // Use only the first batch output (both batches contain the same image)
+      // Averaging identical duplicates provides no benefit and may degrade quality
+      final embedding = List<double>.from(output[0]);
 
       // Debug: Check embedding stats
       final embeddingSum = embedding.reduce((a, b) => a + b);
@@ -170,6 +164,7 @@ class FaceRecognitionService {
 
     KnownFaceModel? bestMatch;
     double bestSimilarity = 0.0;
+    double bestDistance = double.infinity;
     int bestEmbeddingIndex = -1;
 
     for (final knownFace in _knownFaces) {
@@ -182,13 +177,18 @@ class FaceRecognitionService {
           allEmbeddings[i],
         );
 
+        final distance = Helpers.euclideanDistance(embedding, allEmbeddings[i]);
+
         print(
-          'DEBUG: Similarity with ${knownFace.name} (angle $i): $similarity (threshold: ${AppConstants.faceRecognitionThreshold})',
+          'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
         );
 
-        if (similarity > bestSimilarity &&
-            similarity >= AppConstants.faceRecognitionThreshold) {
+        // Use both metrics: high similarity AND low distance for stricter matching
+        if (similarity >= AppConstants.faceRecognitionThreshold &&
+            distance <= 0.8 &&
+            similarity > bestSimilarity) {
           bestSimilarity = similarity;
+          bestDistance = distance;
           bestMatch = knownFace;
           bestEmbeddingIndex = i;
         }
@@ -197,10 +197,12 @@ class FaceRecognitionService {
 
     if (bestMatch != null) {
       print(
-        'DEBUG: Best match: ${bestMatch.name} with similarity $bestSimilarity (from angle $bestEmbeddingIndex)',
+        'DEBUG: Best match: ${bestMatch.name} with similarity=$bestSimilarity, distance=$bestDistance (from angle $bestEmbeddingIndex)',
       );
     } else {
-      print('DEBUG: No match found. Best similarity was: $bestSimilarity');
+      print(
+        'DEBUG: No match found. Best similarity was: $bestSimilarity, distance: $bestDistance',
+      );
     }
 
     return bestMatch;
