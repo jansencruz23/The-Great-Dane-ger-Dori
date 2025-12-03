@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
+import 'dart:ui';
+
 import 'package:camera/camera.dart';
-import 'package:flutter/animation.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -12,47 +15,26 @@ import '../utils/constants.dart';
 import '../utils/helpers.dart';
 
 class FaceRecognitionService {
-  Interpreter? _interpreter;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableContours: true,
-      enableClassification: false,
-      enableLandmarks: true,
-      enableTracking: true,
       performanceMode: FaceDetectorMode.fast,
+      enableLandmarks: true,
+      enableContours: false,
+      enableClassification: false,
+      minFaceSize: 0.1,
     ),
   );
 
-  List<KnownFaceModel> _knownFaces = [];
+  _RecognitionWorker? _worker;
   bool _isInitialized = false;
 
   bool get isInitialized => _isInitialized;
 
-  // Initialize TensorFlow Lite model
+  // Initialize Service and Worker
   Future<void> initialize() async {
     try {
-      // Load MobileFaceNet model for face recognition
-      _interpreter = await Interpreter.fromAsset(
-        'assets/models/MobileFaceNet.tflite',
-      );
-
-      // Print model input/output shapes for debugging
-      final inputTensors = _interpreter!.getInputTensors();
-      final outputTensors = _interpreter!.getOutputTensors();
-
-      print('=== Face Recognition Model Info ===');
-      print('Input tensors: ${inputTensors.length}');
-      for (var i = 0; i < inputTensors.length; i++) {
-        print('  Input $i shape: ${inputTensors[i].shape}');
-        print('  Input $i type: ${inputTensors[i].type}');
-      }
-
-      print('Output tensors: ${outputTensors.length}');
-      for (var i = 0; i < outputTensors.length; i++) {
-        print('  Output $i shape: ${outputTensors[i].shape}');
-        print('  Output $i type: ${outputTensors[i].type}');
-      }
-      print('===================================');
+      _worker = _RecognitionWorker();
+      await _worker!.spawn();
 
       _isInitialized = true;
       print('Face recognition service initialized');
@@ -64,24 +46,27 @@ class FaceRecognitionService {
 
   // Dispose resources
   void dispose() {
-    _interpreter?.close();
+    _worker?.dispose();
     _faceDetector.close();
     _isInitialized = false;
   }
 
   // Update known faces list
   void updateKnownFaces(List<KnownFaceModel> faces) {
-    _knownFaces = faces;
+    _worker?.updateFaces(faces);
   }
 
-  // Detect faces in camera image
-  Future<List<Face>> detectFaces(CameraImage cameraImage) async {
+  // Detect faces in camera image (Main Thread - fast platform call)
+  Future<List<Face>> detectFaces(
+    CameraImage cameraImage, {
+    InputImageRotation? rotation,
+  }) async {
     if (!_isInitialized) {
       throw 'Face recognition not initialized';
     }
 
     try {
-      final inputImage = _convertCameraImage(cameraImage);
+      final inputImage = _convertCameraImage(cameraImage, rotation: rotation);
       final faces = await _faceDetector.processImage(inputImage);
       return faces;
     } catch (e) {
@@ -106,136 +91,48 @@ class FaceRecognitionService {
     }
   }
 
-  // Extract face embedding from detected face
+  // Extract face embedding (Delegated to Worker)
   Future<List<double>?> extractFaceEmbedding(img.Image image, Face face) async {
-    if (!_isInitialized || _interpreter == null) {
-      return null;
-    }
-
-    try {
-      // Crop face from image
-      final faceImage = _cropFace(image, face);
-      if (faceImage == null) return null;
-
-      // Resize to model input size (112x112 for MobileFaceNet)
-      final resized = img.copyResize(faceImage, width: 112, height: 112);
-
-      // Prepare input tensor (batch size 2)
-      final input = _imageToByteList(resized);
-
-      // Prepare output tensor (192-dimensional embedding, batch size 2)
-      final output = List.filled(2 * 192, 0.0).reshape([2, 192]);
-
-      // Run inference
-      _interpreter!.run(input, output);
-
-      // Use only the first batch output (both batches contain the same image)
-      // Averaging identical duplicates provides no benefit and may degrade quality
-      final embedding = List<double>.from(output[0]);
-
-      // Debug: Check embedding stats
-      final embeddingSum = embedding.reduce((a, b) => a + b);
-      final embeddingMean = embeddingSum / embedding.length;
-      print(
-        'DEBUG: Embedding stats - Length: ${embedding.length}, Mean: ${embeddingMean.toStringAsFixed(4)}, First 5 values: ${embedding.take(5).toList()}',
-      );
-
-      final normalized = Helpers.normalizeEmbedding(embedding);
-      final normalizedSum = normalized.reduce((a, b) => a + b);
-      print(
-        'DEBUG: Normalized embedding sum: ${normalizedSum.toStringAsFixed(4)}',
-      );
-
-      return normalized;
-    } catch (e) {
-      print('Face embedding extraction failed: $e');
-      return null;
-    }
+    // This method is kept for compatibility but should ideally not be used directly
+    // if we want to use the worker.
+    // For now, we'll return null or throw, as we want to enforce using processCameraFrame
+    print(
+      'Warning: extractFaceEmbedding called directly. Use processCameraFrame for performance.',
+    );
+    return null;
   }
 
-  // Recognize face by comparing with known faces
-  KnownFaceModel? recognizeFace(List<double> embedding) {
-    if (_knownFaces.isEmpty) {
-      print('DEBUG: No known faces loaded');
-      return null;
-    }
-
-    print('DEBUG: Comparing against ${_knownFaces.length} known faces');
-
-    KnownFaceModel? bestMatch;
-    double bestSimilarity = 0.0;
-    double bestDistance = double.infinity;
-    int bestEmbeddingIndex = -1;
-
-    for (final knownFace in _knownFaces) {
-      // Compare against ALL stored embeddings for this person
-      final allEmbeddings = knownFace.getAllEmbeddings();
-
-      for (int i = 0; i < allEmbeddings.length; i++) {
-        final similarity = Helpers.cosineSimilarity(
-          embedding,
-          allEmbeddings[i],
-        );
-
-        final distance = Helpers.euclideanDistance(embedding, allEmbeddings[i]);
-
-        print(
-          'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
-        );
-
-        // Use both metrics: high similarity AND low distance for stricter matching
-        if (similarity >= AppConstants.faceRecognitionThreshold &&
-            distance <= 0.7 &&
-            similarity > bestSimilarity) {
-          bestSimilarity = similarity;
-          bestDistance = distance;
-          bestMatch = knownFace;
-          bestEmbeddingIndex = i;
-        }
-      }
-    }
-
-    if (bestMatch != null) {
-      print(
-        'DEBUG: Best match: ${bestMatch.name} with similarity=$bestSimilarity, distance=$bestDistance (from angle $bestEmbeddingIndex)',
-      );
-    } else {
-      print(
-        'DEBUG: No match found. Best similarity was: $bestSimilarity, distance: $bestDistance',
-      );
-    }
-
-    return bestMatch;
-  }
-
-  // Process camera frame for recognition
+  // Process camera frame for recognition (Delegated to Worker)
   Future<Map<Face, KnownFaceModel?>> processCameraFrame(
-    CameraImage cameraImage,
-  ) async {
-    if (!_isInitialized) return {};
+    CameraImage cameraImage, {
+    InputImageRotation? rotation,
+  }) async {
+    if (!_isInitialized || _worker == null) return {};
 
     try {
-      // Detect faces
-      final faces = await detectFaces(cameraImage);
+      // 1. Detect faces (Main Thread)
+      final faces = await detectFaces(cameraImage, rotation: rotation);
       if (faces.isEmpty) return {};
 
-      // Convert camera image to img.Image
-      final image = _convertToImage(cameraImage);
-      if (image == null) return {};
+      // 2. Prepare data for worker
+      final isolateData = _IsolateData(
+        cameraImage: cameraImage,
+        rotation: rotation,
+      );
 
-      // Process each face
+      final faceRects = faces.map((f) => f.boundingBox).toList();
+
+      // 3. Process in worker (Isolate)
+      // This handles conversion, cropping, embedding, and matching
+      final matches = await _worker!.process(isolateData, faceRects);
+
+      // 4. Map results back to faces
       final results = <Face, KnownFaceModel?>{};
-
-      for (final face in faces) {
-        // Extract embedding
-        final embedding = await extractFaceEmbedding(image, face);
-
-        if (embedding != null) {
-          // Recognize face
-          final match = recognizeFace(embedding);
-          results[face] = match;
+      for (int i = 0; i < faces.length; i++) {
+        if (i < matches.length) {
+          results[faces[i]] = matches[i];
         } else {
-          results[face] = null;
+          results[faces[i]] = null;
         }
       }
 
@@ -247,31 +144,31 @@ class FaceRecognitionService {
   }
 
   // Helper: Convert CameraImage to InputImage for ML Kit
-  InputImage _convertCameraImage(CameraImage cameraImage) {
-    // 1. Get the raw bytes
+  InputImage _convertCameraImage(
+    CameraImage cameraImage, {
+    InputImageRotation? rotation,
+  }) {
     final WriteBuffer allBytes = WriteBuffer();
     for (final Plane plane in cameraImage.planes) {
       allBytes.putUint8List(plane.bytes);
     }
     final bytes = allBytes.done().buffer.asUint8List();
 
-    // 2. Get the size
     final imageSize = Size(
       cameraImage.width.toDouble(),
       cameraImage.height.toDouble(),
     );
 
-    // 3. Handle rotation - Android typically needs 90 degrees in portrait mode
-    final InputImageRotation imageRotation = Platform.isAndroid
-        ? InputImageRotation.rotation90deg
-        : InputImageRotation.rotation0deg;
+    final imageRotation =
+        rotation ??
+        (Platform.isAndroid
+            ? InputImageRotation.rotation90deg
+            : InputImageRotation.rotation0deg);
 
-    // 4. Handle format (Android defaults to NV21, iOS to BGRA8888)
-    final InputImageFormat inputImageFormat = Platform.isIOS
+    final inputImageFormat = Platform.isIOS
         ? InputImageFormat.bgra8888
         : InputImageFormat.nv21;
 
-    // 5. Create the new metadata object
     final inputImageMetadata = InputImageMetadata(
       size: imageSize,
       rotation: imageRotation,
@@ -279,99 +176,218 @@ class FaceRecognitionService {
       bytesPerRow: cameraImage.planes[0].bytesPerRow,
     );
 
-    print(
-      'DEBUG: Image size: ${imageSize.width}x${imageSize.height}, rotation: $imageRotation',
-    );
-
-    // 6. Return the InputImage
     return InputImage.fromBytes(bytes: bytes, metadata: inputImageMetadata);
   }
+}
 
-  // Helper: Convert CameraImage to img.Image
-  img.Image? _convertToImage(CameraImage cameraImage) {
-    try {
-      if (cameraImage.format.group == ImageFormatGroup.yuv420) {
-        return _convertYUV420(cameraImage);
-      } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
-        return _convertBGRA8888(cameraImage);
-      }
-      return null;
-    } catch (e) {
-      print('Error converting camera image: $e');
-      return null;
-    }
-  }
+// ==================== WORKER IMPLEMENTATION ====================
 
-  img.Image _convertYUV420(CameraImage image) {
-    final width = image.width;
-    final height = image.height;
+class _RecognitionWorker {
+  late Isolate _isolate;
+  late SendPort _sendPort;
+  final ReceivePort _receivePort = ReceivePort();
+  final Map<int, Completer<List<KnownFaceModel?>>> _pendingRequests = {};
+  int _nextRequestId = 0;
 
-    final yPlane = image.planes[0];
-    final uPlane = image.planes[1];
-    final vPlane = image.planes[2];
-
-    final img.Image imgImage = img.Image(width: width, height: height);
-
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final yIndex = y * yPlane.bytesPerRow + x;
-        final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
-
-        final yValue = yPlane.bytes[yIndex];
-        final uValue = uPlane.bytes[uvIndex];
-        final vValue = vPlane.bytes[uvIndex];
-
-        final r = (yValue + 1.370705 * (vValue - 128)).clamp(0, 255).toInt();
-        final g =
-            (yValue - 0.337633 * (uValue - 128) - 0.698001 * (vValue - 128))
-                .clamp(0, 255)
-                .toInt();
-        final b = (yValue + 1.732446 * (uValue - 128)).clamp(0, 255).toInt();
-
-        imgImage.setPixelRgba(x, y, r, g, b, 255);
-      }
-    }
-
-    return imgImage;
-  }
-
-  img.Image _convertBGRA8888(CameraImage image) {
-    return img.Image.fromBytes(
-      width: image.width,
-      height: image.height,
-      bytes: image.planes[0].bytes.buffer,
-      order: img.ChannelOrder.bgra,
+  Future<void> spawn() async {
+    final rootToken = RootIsolateToken.instance!;
+    _isolate = await Isolate.spawn(
+      _workerEntry,
+      _WorkerInit(_receivePort.sendPort, rootToken),
     );
+
+    final completer = Completer<void>();
+    _receivePort.listen((message) {
+      if (message is SendPort) {
+        _sendPort = message;
+        completer.complete();
+      } else if (message is _WorkerResponse) {
+        final reqCompleter = _pendingRequests.remove(message.requestId);
+        reqCompleter?.complete(message.results);
+      }
+    });
+
+    await completer.future;
   }
 
-  // Helper: Crop face region from image
-  img.Image? _cropFace(img.Image image, Face face) {
-    try {
-      final rect = face.boundingBox;
+  void updateFaces(List<KnownFaceModel> faces) {
+    _sendPort.send(_UpdateFacesCommand(faces));
+  }
 
-      // Add padding
-      final padding = 20;
-      final x = (rect.left - padding).clamp(0, image.width).toInt();
-      final y = (rect.top - padding).clamp(0, image.height).toInt();
-      final width = (rect.width + padding * 2)
-          .clamp(0, image.width - x)
-          .toInt();
-      final height = (rect.height + padding * 2)
-          .clamp(0, image.height - y)
-          .toInt();
+  Future<List<KnownFaceModel?>> process(
+    _IsolateData data,
+    List<Rect> faceRects,
+  ) {
+    final id = _nextRequestId++;
+    final completer = Completer<List<KnownFaceModel?>>();
+    _pendingRequests[id] = completer;
+    _sendPort.send(_ProcessCommand(data, faceRects, id));
+    return completer.future;
+  }
 
-      return img.copyCrop(image, x: x, y: y, width: width, height: height);
-    } catch (e) {
-      print('Error cropping face: $e');
-      return null;
+  void dispose() {
+    _receivePort.close();
+    _isolate.kill();
+  }
+}
+
+// Worker Entry Point
+void _workerEntry(_WorkerInit init) async {
+  // Initialize platform channels
+  BackgroundIsolateBinaryMessenger.ensureInitialized(init.rootToken);
+
+  final receivePort = ReceivePort();
+  init.sendPort.send(receivePort.sendPort);
+
+  Interpreter? interpreter;
+  List<KnownFaceModel> knownFaces = [];
+
+  try {
+    interpreter = await Interpreter.fromAsset(
+      'assets/models/MobileFaceNet.tflite',
+    );
+    print('Worker: Model loaded successfully');
+  } catch (e) {
+    print('Worker: Failed to load model: $e');
+  }
+
+  receivePort.listen((message) async {
+    if (message is _UpdateFacesCommand) {
+      knownFaces = message.faces;
+    } else if (message is _ProcessCommand) {
+      if (interpreter == null) {
+        init.sendPort.send(
+          _WorkerResponse(
+            message.requestId,
+            List.filled(message.faceRects.length, null),
+          ),
+        );
+        return;
+      }
+
+      try {
+        // 1. Convert Image
+        final image = _convertToImage(message.imageData);
+        if (image == null) {
+          init.sendPort.send(
+            _WorkerResponse(
+              message.requestId,
+              List.filled(message.faceRects.length, null),
+            ),
+          );
+          return;
+        }
+
+        // 2. Process each face
+        final results = <KnownFaceModel?>[];
+        for (final rect in message.faceRects) {
+          final embedding = _extractEmbedding(interpreter, image, rect);
+          if (embedding != null) {
+            final match = _recognizeFace(embedding, knownFaces);
+            results.add(match);
+          } else {
+            results.add(null);
+          }
+        }
+
+        init.sendPort.send(_WorkerResponse(message.requestId, results));
+      } catch (e) {
+        print('Worker: Error processing frame: $e');
+        init.sendPort.send(
+          _WorkerResponse(
+            message.requestId,
+            List.filled(message.faceRects.length, null),
+          ),
+        );
+      }
+    }
+  });
+}
+
+// Worker Helpers
+img.Image? _convertToImage(_IsolateData data) {
+  try {
+    if (data.formatGroup == ImageFormatGroup.yuv420) {
+      return _convertYUV420(data);
+    } else if (data.formatGroup == ImageFormatGroup.bgra8888) {
+      return _convertBGRA8888(data);
+    }
+    return null;
+  } catch (e) {
+    print('Worker: Error converting image: $e');
+    return null;
+  }
+}
+
+img.Image _convertYUV420(_IsolateData data) {
+  final width = data.width;
+  final height = data.height;
+  final yPlane = data.planes[0];
+  final uPlane = data.planes[1];
+  final vPlane = data.planes[2];
+  final yRowStride = data.bytesPerRow[0];
+  final uRowStride = data.bytesPerRow[1];
+  final uvPixelStride = data.planesPixelStride[1];
+
+  final img.Image imgImage = img.Image(width: width, height: height);
+
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < width; x++) {
+      final yIndex = y * yRowStride + x;
+      final uvIndex = (y ~/ 2) * uRowStride + (x ~/ 2) * uvPixelStride;
+
+      final yValue = yPlane[yIndex];
+      final uValue = uPlane[uvIndex];
+      final vValue = vPlane[uvIndex];
+
+      final r = (yValue + 1.370705 * (vValue - 128)).clamp(0, 255).toInt();
+      final g = (yValue - 0.337633 * (uValue - 128) - 0.698001 * (vValue - 128))
+          .clamp(0, 255)
+          .toInt();
+      final b = (yValue + 1.732446 * (uValue - 128)).clamp(0, 255).toInt();
+
+      imgImage.setPixelRgba(x, y, r, g, b, 255);
     }
   }
+  return imgImage;
+}
 
-  // Helper: Convert image to byte list for TensorFlow Lite
-  List<List<List<List<double>>>> _imageToByteList(img.Image image) {
-    // Create batch size 2 (duplicate the same image for both batch slots)
+img.Image _convertBGRA8888(_IsolateData data) {
+  return img.Image.fromBytes(
+    width: data.width,
+    height: data.height,
+    bytes: data.planes[0].buffer,
+    order: img.ChannelOrder.bgra,
+  );
+}
+
+List<double>? _extractEmbedding(
+  Interpreter interpreter,
+  img.Image image,
+  Rect rect,
+) {
+  try {
+    // Crop
+    final padding = 20;
+    final x = (rect.left - padding).clamp(0, image.width).toInt();
+    final y = (rect.top - padding).clamp(0, image.height).toInt();
+    final width = (rect.width + padding * 2).clamp(0, image.width - x).toInt();
+    final height = (rect.height + padding * 2)
+        .clamp(0, image.height - y)
+        .toInt();
+
+    final faceImage = img.copyCrop(
+      image,
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+    );
+    final resized = img.copyResize(faceImage, width: 112, height: 112);
+
+    // Preprocess
     final input = List.generate(
-      2,
+      1, // Batch size 1
       (_) => List.generate(
         112,
         (_) => List.generate(112, (_) => List.filled(3, 0.0)),
@@ -380,25 +396,93 @@ class FaceRecognitionService {
 
     for (int y = 0; y < 112; y++) {
       for (int x = 0; x < 112; x++) {
-        final pixel = image.getPixel(x, y);
-
-        // Normalize to [-1, 1] using correct MobileFaceNet preprocessing
-        // Formula: (pixel - 127.5) / 128
+        final pixel = resized.getPixel(x, y);
         final r = (pixel.r - 127.5) / 128.0;
         final g = (pixel.g - 127.5) / 128.0;
         final b = (pixel.b - 127.5) / 128.0;
-
-        // Fill both batch slots with the same image
         input[0][y][x][0] = r;
         input[0][y][x][1] = g;
         input[0][y][x][2] = b;
-
-        input[1][y][x][0] = r;
-        input[1][y][x][1] = g;
-        input[1][y][x][2] = b;
       }
     }
 
-    return input;
+    // Inference
+    final output = List.filled(1 * 192, 0.0).reshape([1, 192]);
+    interpreter.run(input, output);
+
+    final embedding = List<double>.from(output[0]);
+    return Helpers.normalizeEmbedding(embedding);
+  } catch (e) {
+    print('Worker: Error extracting embedding: $e');
+    return null;
   }
+}
+
+KnownFaceModel? _recognizeFace(
+  List<double> embedding,
+  List<KnownFaceModel> knownFaces,
+) {
+  KnownFaceModel? bestMatch;
+  double bestSimilarity = 0.0;
+
+  for (final knownFace in knownFaces) {
+    final allEmbeddings = knownFace.getAllEmbeddings();
+    for (final knownEmbedding in allEmbeddings) {
+      final similarity = Helpers.cosineSimilarity(embedding, knownEmbedding);
+      final distance = Helpers.euclideanDistance(embedding, knownEmbedding);
+
+      if (similarity >= AppConstants.faceRecognitionThreshold &&
+          distance <= 0.7 &&
+          similarity > bestSimilarity) {
+        bestSimilarity = similarity;
+        bestMatch = knownFace;
+      }
+    }
+  }
+  return bestMatch;
+}
+
+// Protocol Classes
+class _WorkerInit {
+  final SendPort sendPort;
+  final RootIsolateToken rootToken;
+  _WorkerInit(this.sendPort, this.rootToken);
+}
+
+class _UpdateFacesCommand {
+  final List<KnownFaceModel> faces;
+  _UpdateFacesCommand(this.faces);
+}
+
+class _ProcessCommand {
+  final _IsolateData imageData;
+  final List<Rect> faceRects;
+  final int requestId;
+  _ProcessCommand(this.imageData, this.faceRects, this.requestId);
+}
+
+class _WorkerResponse {
+  final int requestId;
+  final List<KnownFaceModel?> results;
+  _WorkerResponse(this.requestId, this.results);
+}
+
+class _IsolateData {
+  final List<Uint8List> planes;
+  final List<int> bytesPerRow;
+  final List<int> planesPixelStride;
+  final int width;
+  final int height;
+  final ImageFormatGroup formatGroup;
+  final InputImageRotation? rotation;
+
+  _IsolateData({required CameraImage cameraImage, this.rotation})
+    : planes = cameraImage.planes.map((p) => p.bytes).toList(),
+      bytesPerRow = cameraImage.planes.map((p) => p.bytesPerRow).toList(),
+      planesPixelStride = cameraImage.planes
+          .map((p) => p.bytesPerPixel ?? 1)
+          .toList(),
+      width = cameraImage.width,
+      height = cameraImage.height,
+      formatGroup = cameraImage.format.group;
 }

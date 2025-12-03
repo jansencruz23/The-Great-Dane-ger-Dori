@@ -25,15 +25,59 @@ class ArOverlayWidget extends StatelessWidget {
     final screenSize = MediaQuery.of(context).size;
 
     // Convert face bounding box to screen coordinates
-    final scaleX = screenSize.width / imageSize.width;
-    final scaleY = screenSize.height / imageSize.height;
+    // The face coordinates come from the image stream.
+    // If the image stream is 640x480 (landscape) but the screen is portrait,
+    // ML Kit coordinates need to be mapped.
+
+    // However, we are passing the PREVIEW size as imageSize.
+    // CameraController.value.previewSize is the size of the preview texture.
+
+    // If the preview is rotated (e.g. Android portrait), width/height might be swapped
+    // relative to screen.
+
+    // Simple heuristic: if screen is portrait but image is landscape (or vice versa),
+    // we might need to swap dimensions for scaling calculation IF the preview isn't already rotated.
+    // But CameraPreview usually handles rotation.
+
+    // Let's rely on the fact that we want to map the relative position.
 
     final rect = face.boundingBox;
 
-    // Calculate position above the face
-    final left = rect.left * scaleX;
-    final top = (rect.top * scaleY) - 120; // Position above face
-    final width = rect.width * scaleX;
+    // Calculate position
+    // We'll use a safer scaling approach that covers the screen (BoxFit.cover equivalent)
+
+    // Determine the scale factor used by the CameraPreview to cover the screen
+    double scale;
+    if (screenSize.aspectRatio > imageSize.aspectRatio) {
+      // Screen is wider than image (relative to their own axes)
+      // Fit width
+      scale = screenSize.width / imageSize.width;
+    } else {
+      // Screen is taller
+      // Fit height
+      scale = screenSize.height / imageSize.height;
+    }
+
+    // If we are in landscape, we might need to adjust if the coordinates are rotated.
+    // But ML Kit usually returns coordinates in the image frame.
+    // If we passed rotation to ML Kit, it might rotate coordinates?
+    // No, ML Kit returns coordinates in the unrotated image usually, unless we use the metadata correctly.
+
+    // Actually, if we pass rotation to ML Kit, it processes the image "upright".
+    // The coordinates returned are in the coordinate system of the "upright" image.
+
+    // If we are in landscape, and the device is landscape, the image is likely already "upright" (0 deg rotation).
+    // So coordinates should map directly.
+
+    // Let's try using the calculated scale.
+
+    // Center the image on screen
+    final double offsetX = (screenSize.width - imageSize.width * scale) / 2;
+    final double offsetY = (screenSize.height - imageSize.height * scale) / 2;
+
+    final left = (rect.left * scale) + offsetX;
+    final top = ((rect.top * scale) + offsetY) - 120; // Position above face
+    final width = rect.width * scale;
 
     return Positioned(
       left: left,
