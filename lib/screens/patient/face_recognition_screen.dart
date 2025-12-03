@@ -64,6 +64,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
   // Enrollment mode state
   EnrollmentMode _enrollmentMode = EnrollmentMode.normal;
+  bool _isSavingMinimized = false;
 
   // Unknown face tracking
   Face? _unknownFace;
@@ -495,7 +496,10 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   }
 
   Future<void> _saveEnrollment() async {
-    setState(() => _enrollmentMode = EnrollmentMode.saving);
+    setState(() {
+      _enrollmentMode = EnrollmentMode.saving;
+      _isSavingMinimized = true; // Start minimized immediately
+    });
 
     try {
       final userProvider = Provider.of<UserProvider>(context, listen: false);
@@ -793,31 +797,6 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
-                    if (_isRecording)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(
-                              Icons.fiber_manual_record,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Recording',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ),
                   ],
                 ),
 
@@ -886,6 +865,45 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         if (_enrollmentMode == EnrollmentMode.capturingAngles)
           _buildEnrollmentCaptureOverlay(),
         if (_enrollmentMode == EnrollmentMode.saving) _buildSavingOverlay(),
+
+        // Recording Indicator (Positioned lower to avoid overlap)
+        if (_isRecording)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 80, // Lower position
+            right: 16,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(
+                  Icons.fiber_manual_record,
+                  color: Colors.red,
+                  size: 16,
+                  shadows: [
+                    Shadow(
+                      blurRadius: 2,
+                      color: Colors.black54,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Recording',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 2,
+                        color: Colors.black54,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -1117,20 +1135,66 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   }
 
   Widget _buildSavingOverlay() {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.8),
-      child: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: Colors.white),
-            SizedBox(height: 16),
-            Text(
-              'Saving enrollment...',
-              style: TextStyle(color: Colors.white, fontSize: 18),
-            ),
-          ],
+    final screenSize = MediaQuery.of(context).size;
+    final padding = MediaQuery.of(context).padding;
+
+    // Target dimensions for minimized state (Upper Right)
+    final double minHeight = 48.0;
+    final double minWidth = 110.0;
+    final double minTop = padding.top + 16.0;
+    final double minRight = 16.0;
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 800),
+      curve: Curves.easeInOutCubic,
+      // Full screen (0,0,0,0) -> Upper Right Box
+      top: _isSavingMinimized ? minTop : 0,
+      right: _isSavingMinimized ? minRight : 0,
+      left: _isSavingMinimized ? screenSize.width - (minWidth + minRight) : 0,
+      bottom: _isSavingMinimized ? screenSize.height - (minTop + minHeight) : 0,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(_isSavingMinimized ? 0.7 : 0.8),
+          borderRadius: BorderRadius.circular(_isSavingMinimized ? 24 : 0),
         ),
+        padding: _isSavingMinimized
+            ? const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
+            : EdgeInsets.zero,
+        child: _isSavingMinimized
+            ? Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    'Saving...',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  CircularProgressIndicator(color: Colors.white),
+                  SizedBox(height: 16),
+                  Text(
+                    'Saving enrollment...',
+                    style: TextStyle(color: Colors.white, fontSize: 18),
+                  ),
+                ],
+              ),
       ),
     );
   }
