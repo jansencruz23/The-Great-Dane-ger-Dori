@@ -16,7 +16,8 @@ Future<void> main() async {
   // Load environment variables from .env file
   try {
     await dotenv.load(fileName: ".env");
-    AppConstants.geminiApiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
+    // AppConstants.geminiApiKey is a getter, so we don't set it here.
+    // It will automatically read from dotenv when accessed.
     if (AppConstants.geminiApiKey.isEmpty) {
       print('Warning: GEMINI_API_KEY not found in .env file');
     } else {

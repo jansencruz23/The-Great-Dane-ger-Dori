@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // Coffee Shop Theme
-  static const Color primary = Color(0xFF8B6F47); // Warm tan/latte
-  static const Color secondary = Color(0xFFE8DCC8); // Cream/beige
-  static const Color accent = Color(0xFF3E2723); // Dark espresso brown
-  static const Color background = Color(0xFFF5F0E8); // Warm cream
-  static const Color surface = Color(0xFFEFE6D5); // Light beige
-  static const Color error = Color(0xFFD84315); // Burnt orange
-  static const Color textPrimary = Color(
-    0xFF2C1810,
-  ); // Dark brown (almost black)
-  static const Color textSecondary = Color(0xFF6D5D4B); // Medium brown
-  static const Color arOverlay = Color(0xFFD4C4A8); // Light tan
-  static const Color arOverlayBorder = Color(0xFF8B6F47); // Warm tan border
+  // Jade Green Theme
+  static const Color primary = Color(0xFF00A86B); // Jade Green
+  static const Color secondary = Color(0xFFB2DFDB); // Light Jade/Teal
+  static const Color accent = Color(0xFF004D40); // Deep Green
+  static const Color background = Color(0xFFE0F2F1); // Very light cool green
+  static const Color surface = Color(0xFFFFFFFF); // White
+  static const Color error = Color(0xFFD32F2F); // Red
+  static const Color textPrimary = Color(0xFF00332A); // Very dark green/black
+  static const Color textSecondary = Color(0xFF4A7A6F); // Muted green
+  static const Color arOverlay = Color(0xFF80CBC4); // Light Teal
+  static const Color arOverlayBorder = Color(0xFF00A86B); // Jade Green
 }
 
 class AppConstants {
