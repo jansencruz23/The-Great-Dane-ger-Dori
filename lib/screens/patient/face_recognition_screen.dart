@@ -199,9 +199,15 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       _isProcessing = true;
 
       try {
+        // Calculate rotation
+        final rotation = _calculateRotation();
+
         // Handle enrollment mode - capture poses
         if (_enrollmentMode == EnrollmentMode.capturingAngles) {
-          final faces = await _faceRecognitionService.detectFaces(cameraImage);
+          final faces = await _faceRecognitionService.detectFaces(
+            cameraImage,
+            rotation: rotation,
+          );
 
           if (faces.isNotEmpty && mounted) {
             final face = faces.first;
@@ -220,6 +226,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           // Process the camera frame
           final results = await _faceRecognitionService.processCameraFrame(
             cameraImage,
+            rotation: rotation,
           );
 
           print('DEBUG: Detected ${results.length} faces');
@@ -241,11 +248,39 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       } catch (e) {
         print('Error processing frame: $e');
       } finally {
-        // Add delay to throttle processing (process ~2 frames per second)
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Add delay to throttle processing (process ~10 frames per second)
+        await Future.delayed(const Duration(milliseconds: 100));
         _isProcessing = false;
       }
     });
+  }
+
+  InputImageRotation _calculateRotation() {
+    final sensorOrientation = _cameraController!.description.sensorOrientation;
+    final orientation = MediaQuery.of(context).orientation;
+
+    if (Platform.isAndroid) {
+      // Android: Sensor is usually 90 or 270.
+      // Portrait: Device 0. Rotation = Sensor.
+      // Landscape: Device 90/270. Rotation = Sensor - Device.
+
+      if (orientation == Orientation.portrait) {
+        // In portrait, we usually need 90 or 270 depending on sensor
+        if (sensorOrientation == 270) return InputImageRotation.rotation270deg;
+        return InputImageRotation.rotation90deg;
+      } else {
+        // In landscape, the camera image is usually "upright" relative to the world
+        // if the device is held in the "natural" landscape orientation for the camera.
+        return InputImageRotation.rotation0deg;
+      }
+    }
+
+    // iOS
+    if (orientation == Orientation.portrait) {
+      return InputImageRotation.rotation90deg;
+    } else {
+      return InputImageRotation.rotation0deg;
+    }
   }
 
   Future<void> _handleFaceRecognition(
@@ -673,7 +708,6 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     }
 
     final size = MediaQuery.of(context).size;
-    final deviceRatio = size.width / size.height;
     final cameraRatio = _cameraController!.value.aspectRatio;
 
     return Stack(
@@ -682,14 +716,18 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         // Camera preview
         Transform.scale(
           scale: () {
-            var scale = 1.0;
-            if (size.height > size.width) {
-              scale = deviceRatio * cameraRatio;
-            } else {
-              scale = deviceRatio / cameraRatio;
+            // Calculate scale to ensure the camera preview covers the entire screen
+            // regardless of orientation
+
+            // Simpler approach: cover the screen
+            // If screen is taller than wide (portrait)
+            if (size.aspectRatio < 1) {
+              return 1 / (cameraRatio * size.aspectRatio);
             }
-            if (scale < 1) scale = 1 / scale;
-            return scale;
+            // If screen is wider than tall (landscape)
+            else {
+              return (size.aspectRatio / cameraRatio);
+            }
           }(),
           child: Center(child: CameraPreview(_cameraController!)),
         ),
@@ -699,10 +737,15 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           CustomPaint(
             painter: FaceDetectionPainter(
               faces: _detectedFaces.keys.toList(),
-              imageSize: Size(
-                _cameraController!.value.previewSize!.height,
-                _cameraController!.value.previewSize!.width,
-              ),
+              imageSize: size.aspectRatio < 1
+                  ? Size(
+                      _cameraController!.value.previewSize!.height,
+                      _cameraController!.value.previewSize!.width,
+                    )
+                  : Size(
+                      _cameraController!.value.previewSize!.width,
+                      _cameraController!.value.previewSize!.height,
+                    ),
             ),
           ),
 
@@ -712,10 +755,15 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
             return ArOverlayWidget(
               face: entry.key,
               knownFace: entry.value!,
-              imageSize: Size(
-                _cameraController!.value.previewSize!.height,
-                _cameraController!.value.previewSize!.width,
-              ),
+              imageSize: size.aspectRatio < 1
+                  ? Size(
+                      _cameraController!.value.previewSize!.height,
+                      _cameraController!.value.previewSize!.width,
+                    )
+                  : Size(
+                      _cameraController!.value.previewSize!.width,
+                      _cameraController!.value.previewSize!.height,
+                    ),
             );
           }
           return const SizedBox.shrink();
