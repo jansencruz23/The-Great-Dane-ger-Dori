@@ -270,8 +270,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen> {
                         ],
                       ),
                     ),
-
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),
