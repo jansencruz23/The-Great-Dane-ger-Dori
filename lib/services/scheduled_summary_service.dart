@@ -224,48 +224,4 @@ class ScheduledSummaryServicse {
     );
     print('🧪 Test notification sent');
   }
-
-  /// Send SOS notification to caregiver (for debugging)
-  ///
-  /// TODO: Implement actual SOS functionality:
-  /// 1. Get caregiver contact from database
-  /// 2. Send push notification to caregiver's device
-  /// 3. Send SMS/email as backup
-  /// 4. Log SOS event in database
-  Future<void> sendSOSNotification({
-    required String patientId,
-    String? message,
-  }) async {
-    print('🆘 SOS TRIGGERED for patient: $patientId');
-    print('   Message: ${message ?? "Emergency assistance needed"}');
-
-    // Send local notification (for debugging)
-    await _notifications.show(
-      911, // SOS notification ID
-      '🆘 SOS Alert',
-      message ?? 'Emergency assistance needed',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'sos_channel',
-          'SOS Alerts',
-          channelDescription: 'Emergency SOS notifications',
-          importance: Importance.max,
-          priority: Priority.max,
-          playSound: true,
-          enableVibration: true,
-        ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
-      ),
-    );
-
-    // TODO: Send to caregiver's device via Firebase Cloud Messaging
-    // TODO: Send SMS to caregiver
-    // TODO: Log SOS event in database
-
-    print('✅ SOS notification sent (debug mode)');
-  }
 }
