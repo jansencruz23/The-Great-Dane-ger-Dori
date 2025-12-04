@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
@@ -15,11 +17,11 @@ class FaceRecognitionService {
   Interpreter? _interpreter;
   final FaceDetector _faceDetector = FaceDetector(
     options: FaceDetectorOptions(
-      enableContours: false, // Disabled for performance
+      enableContours: false,
       enableClassification: false,
-      enableLandmarks: false, // Disabled for performance
+      enableLandmarks: true,
       enableTracking: true,
-      performanceMode: FaceDetectorMode.fast,
+      performanceMode: FaceDetectorMode.accurate,
     ),
   );
 
@@ -31,9 +33,9 @@ class FaceRecognitionService {
   // Initialize TensorFlow Lite model
   Future<void> initialize() async {
     try {
-      // Load MobileFaceNet model for face recognition
+      // Load FaceNet-512 model for face recognition
       _interpreter = await Interpreter.fromAsset(
-        'assets/models/MobileFaceNet.tflite',
+        'assets/models/facenet_512.tflite',
       );
 
       // Print model input/output shapes for debugging
@@ -75,13 +77,16 @@ class FaceRecognitionService {
   }
 
   // Detect faces in camera image
-  Future<List<Face>> detectFaces(CameraImage cameraImage) async {
+  Future<List<Face>> detectFaces(
+    CameraImage cameraImage,
+    InputImageRotation rotation,
+  ) async {
     if (!_isInitialized) {
       throw 'Face recognition not initialized';
     }
 
     try {
-      final inputImage = _convertCameraImage(cameraImage);
+      final inputImage = _convertCameraImage(cameraImage, rotation);
       final faces = await _faceDetector.processImage(inputImage);
       return faces;
     } catch (e) {
@@ -114,7 +119,7 @@ class FaceRecognitionService {
 
     try {
       // Crop face from image
-      final faceImage = _cropFace(image, face);
+      final faceImage = _cropAndAlignFace(image, face);
       if (faceImage == null) return null;
 
       return _runInference(faceImage);
@@ -128,39 +133,50 @@ class FaceRecognitionService {
   Future<List<double>?> extractFaceEmbeddingFromYUV(
     CameraImage cameraImage,
     Face face,
+    InputImageRotation rotation,
   ) async {
-    if (!_isInitialized || _interpreter == null) {
-      return null;
-    }
-
+    if (!_isInitialized || _interpreter == null) return null;
     try {
-      // Crop and convert only the face region directly from YUV
-      final faceImage = _cropFaceFromYUV(cameraImage, face);
-      if (faceImage == null) return null;
+      // 1. Crop raw face from YUV
+      final rawFaceImage = _cropFaceFromYUV(cameraImage, face);
+      if (rawFaceImage == null) return null;
 
-      return _runInference(faceImage);
+      // 2. Align (rotate) the cropped face
+      final alignedImage = _alignCroppedFace(rawFaceImage, face);
+
+      return _runInference(alignedImage);
     } catch (e) {
       print('Face embedding extraction from YUV failed: $e');
       return null;
     }
   }
 
+  // Public method to get embedding from an already cropped face image
+  Future<List<double>?> getEmbeddingFromCroppedImage(
+    img.Image faceImage,
+  ) async {
+    if (!_isInitialized || _interpreter == null) {
+      return null;
+    }
+    return _runInference(faceImage);
+  }
+
   // Helper: Run inference on a cropped face image
   Future<List<double>?> _runInference(img.Image faceImage) async {
     try {
-      // Resize to model input size (112x112 for MobileFaceNet)
-      final resized = img.copyResize(faceImage, width: 112, height: 112);
+      // Resize to model input size (160x160 for FaceNet-512)
+      final resized = img.copyResize(faceImage, width: 160, height: 160);
 
-      // Prepare input tensor (batch size 2)
+      // Prepare input tensor (batch size 1)
       final input = _imageToByteList(resized);
 
-      // Prepare output tensor (192-dimensional embedding, batch size 2)
-      final output = List.filled(2 * 192, 0.0).reshape([2, 192]);
+      // Prepare output tensor (512-dimensional embedding, batch size 1)
+      final output = List.filled(512, 0.0).reshape([1, 512]);
 
       // Run inference
       _interpreter!.run(input, output);
 
-      // Use only the first batch output
+      // Extract the embedding from output
       final embedding = List<double>.from(output[0]);
       final normalized = Helpers.normalizeEmbedding(embedding);
 
@@ -178,63 +194,83 @@ class FaceRecognitionService {
       return null;
     }
 
-    // print('DEBUG: Comparing against ${_knownFaces.length} known faces');
+    print('DEBUG: Comparing against ${_knownFaces.length} known faces');
 
-    KnownFaceModel? bestMatch;
-    double bestSimilarity = 0.0;
-    // double bestDistance = double.infinity;
-    // int bestEmbeddingIndex = -1;
+    // Calculate similarities for all known faces
+    final matches = <({KnownFaceModel face, double similarity})>[];
 
     for (final knownFace in _knownFaces) {
-      // Compare against ALL stored embeddings for this person
-      final allEmbeddings = knownFace.getAllEmbeddings();
+      final template = _averageEmbeddings(knownFace.getAllEmbeddings());
+      final similarity = Helpers.cosineSimilarity(embedding, template);
+      matches.add((face: knownFace, similarity: similarity));
 
-      for (int i = 0; i < allEmbeddings.length; i++) {
-        final similarity = Helpers.cosineSimilarity(
-          embedding,
-          allEmbeddings[i],
-        );
+      // Print each comparison
+      print(
+        'DEBUG:   ${knownFace.name}: similarity = ${similarity.toStringAsFixed(4)}',
+      );
+    }
 
-        final distance = Helpers.euclideanDistance(embedding, allEmbeddings[i]);
+    // Sort by similarity (descending)
+    matches.sort((a, b) => b.similarity.compareTo(a.similarity));
 
-        // print(
-        //   'DEBUG: ${knownFace.name} (angle $i): similarity=$similarity, distance=$distance (thresholds: similarity>=0.7, distance<=0.8)',
-        // );
+    // Top-1 match must exceed threshold
+    final best = matches.first;
 
-        // Use both metrics: high similarity AND low distance for stricter matching
-        if (similarity >= AppConstants.faceRecognitionThreshold &&
-            distance <= 0.7 &&
-            similarity > bestSimilarity) {
-          bestSimilarity = similarity;
-          // bestDistance = distance;
-          bestMatch = knownFace;
-          // bestEmbeddingIndex = i;
+    print(
+      'DEBUG: Best match: ${best.face.name} with similarity = ${best.similarity.toStringAsFixed(4)}',
+    );
+    print('DEBUG: Threshold: ${AppConstants.faceRecognitionThreshold}');
+
+    // AND the gap between best and second-best should be significant
+    if (best.similarity >= AppConstants.faceRecognitionThreshold) {
+      // Optional: Require margin between top-2 candidates
+      if (matches.length > 1) {
+        final secondBest = matches[1];
+        final margin = best.similarity - secondBest.similarity;
+
+        // Require at least 0.025 difference (tune this)
+        if (margin >= 0.025) {
+          return best.face;
         }
+      } else {
+        return best.face;
       }
     }
 
-    if (bestMatch != null) {
-      // print(
-      //   'DEBUG: Best match: ${bestMatch.name} with similarity=$bestSimilarity, distance=$bestDistance (from angle $bestEmbeddingIndex)',
-      // );
-    } else {
-      // print(
-      //   'DEBUG: No match found. Best similarity was: $bestSimilarity, distance: $bestDistance',
-      // );
+    return null;
+  }
+
+  // Helper to average embeddings
+  List<double> _averageEmbeddings(List<List<double>> embeddings) {
+    if (embeddings.isEmpty) return [];
+
+    final avgEmbedding = List<double>.filled(embeddings[0].length, 0.0);
+
+    for (final emb in embeddings) {
+      for (int i = 0; i < emb.length; i++) {
+        avgEmbedding[i] += emb[i];
+      }
     }
 
-    return bestMatch;
+    // Average
+    for (int i = 0; i < avgEmbedding.length; i++) {
+      avgEmbedding[i] /= embeddings.length;
+    }
+
+    // Re-normalize after averaging
+    return Helpers.normalizeEmbedding(avgEmbedding);
   }
 
   // Process camera frame for recognition
   Future<Map<Face, KnownFaceModel?>> processCameraFrame(
     CameraImage cameraImage,
+    InputImageRotation rotation,
   ) async {
     if (!_isInitialized) return {};
 
     try {
       // Detect faces
-      final faces = await detectFaces(cameraImage);
+      final faces = await detectFaces(cameraImage, rotation);
       if (faces.isEmpty) return {};
 
       // Process each face
@@ -242,7 +278,11 @@ class FaceRecognitionService {
 
       for (final face in faces) {
         // Extract embedding directly from YUV buffer (optimized)
-        final embedding = await extractFaceEmbeddingFromYUV(cameraImage, face);
+        final embedding = await extractFaceEmbeddingFromYUV(
+          cameraImage,
+          face,
+          rotation,
+        );
 
         if (embedding != null) {
           // Recognize face
@@ -261,7 +301,10 @@ class FaceRecognitionService {
   }
 
   // Helper: Convert CameraImage to InputImage for ML Kit
-  InputImage _convertCameraImage(CameraImage cameraImage) {
+  InputImage _convertCameraImage(
+    CameraImage cameraImage,
+    InputImageRotation rotation,
+  ) {
     // 1. Get the raw bytes
     final WriteBuffer allBytes = WriteBuffer();
     for (final Plane plane in cameraImage.planes) {
@@ -275,11 +318,6 @@ class FaceRecognitionService {
       cameraImage.height.toDouble(),
     );
 
-    // 3. Handle rotation - Android typically needs 90 degrees in portrait mode
-    final InputImageRotation imageRotation = Platform.isAndroid
-        ? InputImageRotation.rotation90deg
-        : InputImageRotation.rotation0deg;
-
     // 4. Handle format (Android defaults to NV21, iOS to BGRA8888)
     final InputImageFormat inputImageFormat = Platform.isIOS
         ? InputImageFormat.bgra8888
@@ -288,14 +326,10 @@ class FaceRecognitionService {
     // 5. Create the new metadata object
     final inputImageMetadata = InputImageMetadata(
       size: imageSize,
-      rotation: imageRotation,
+      rotation: rotation,
       format: inputImageFormat,
       bytesPerRow: cameraImage.planes[0].bytesPerRow,
     );
-
-    // print(
-    //   'DEBUG: Image size: ${imageSize.width}x${imageSize.height}, rotation: $imageRotation',
-    // );
 
     // 6. Return the InputImage
     return InputImage.fromBytes(bytes: bytes, metadata: inputImageMetadata);
@@ -358,23 +392,92 @@ class FaceRecognitionService {
     );
   }
 
+  img.Image _alignCroppedFace(img.Image croppedImage, Face face) {
+    final leftEye = face.landmarks[FaceLandmarkType.leftEye];
+    final rightEye = face.landmarks[FaceLandmarkType.rightEye];
+
+    if (leftEye == null || rightEye == null) return croppedImage;
+
+    // Calculate angle
+    final dy = rightEye.position.y - leftEye.position.y;
+    final dx = rightEye.position.x - leftEye.position.x;
+    final angle = (atan2(dy, dx) * 180 / pi);
+
+    // Only rotate if the tilt is significant (> 3 degrees) to save CPU
+    if (angle.abs() > 3.0) {
+      return img.copyRotate(croppedImage, angle: angle);
+    }
+
+    return croppedImage;
+  }
+
+  img.Image? _cropAndAlignFace(img.Image image, Face face) {
+    try {
+      // 1. Get Landmarks
+      final leftEye = face.landmarks[FaceLandmarkType.leftEye];
+      final rightEye = face.landmarks[FaceLandmarkType.rightEye];
+
+      if (leftEye == null || rightEye == null) {
+        return _cropFace(image, face); // Fallback to crop without alignment
+      }
+
+      // 2. Calculate Angle (Rotation needed to make eyes horizontal)
+      final dy = rightEye.position.y - leftEye.position.y;
+      final dx = rightEye.position.x - leftEye.position.x;
+
+      // Calculate angle in degrees
+      final angle = (atan2(dy, dx) * 180 / pi);
+
+      // Use existing crop, but rotate the RESULT
+      // This is faster than full affine transformation
+      img.Image? cropped = _cropFace(image, face);
+      if (cropped != null && angle.abs() > 3.0) {
+        // Only rotate if tilt is significant
+        return img.copyRotate(cropped, angle: angle);
+      }
+      return cropped;
+    } catch (e) {
+      print('Alignment failed: $e');
+      return null;
+    }
+  }
+
   // Helper: Crop face region from image
   img.Image? _cropFace(img.Image image, Face face) {
     try {
       final rect = face.boundingBox;
 
-      // Add padding
-      final padding = 20;
-      final x = (rect.left - padding).clamp(0, image.width).toInt();
-      final y = (rect.top - padding).clamp(0, image.height).toInt();
-      final width = (rect.width + padding * 2)
-          .clamp(0, image.width - x)
-          .toInt();
-      final height = (rect.height + padding * 2)
-          .clamp(0, image.height - y)
+      // Calculate center of face
+      final centerX = rect.left + rect.width / 2;
+      final centerY = rect.top + rect.height / 2;
+
+      // Use the larger dimension to create a square
+      // Add padding factor (1.3x = 30% larger than face for context)
+      final size = (rect.width > rect.height ? rect.width : rect.height) * 1.3;
+
+      // Calculate square crop coordinates centered on face
+      final x = (centerX - size / 2).clamp(0, image.width).toInt();
+      final y = (centerY - size / 2).clamp(0, image.height).toInt();
+      final cropSize = size
+          .clamp(
+            0,
+            (image.width - x) < (image.height - y)
+                ? (image.width - x)
+                : (image.height - y),
+          )
           .toInt();
 
-      return img.copyCrop(image, x: x, y: y, width: width, height: height);
+      // Crop square region
+      final cropped = img.copyCrop(
+        image,
+        x: x,
+        y: y,
+        width: cropSize,
+        height: cropSize,
+      );
+
+      // Resize to 160x160 (no distortion since it's already square)
+      return img.copyResize(cropped, width: 160, height: 160);
     } catch (e) {
       print('Error cropping face: $e');
       return null;
@@ -450,35 +553,39 @@ class FaceRecognitionService {
     }
   }
 
+  // Public method for enrollment - crops face from YUV for UI purposes
+  img.Image? cropFaceFromYUV(
+    CameraImage image,
+    Face face,
+    InputImageRotation rotation,
+  ) {
+    return _cropFaceFromYUV(image, face);
+  }
+
   // Helper: Convert image to byte list for TensorFlow Lite
   List<List<List<List<double>>>> _imageToByteList(img.Image image) {
-    // Create batch size 2 (duplicate the same image for both batch slots)
+    // Create batch size 1 for FaceNet-512
     final input = List.generate(
-      2,
+      1,
       (_) => List.generate(
-        112,
-        (_) => List.generate(112, (_) => List.filled(3, 0.0)),
+        160,
+        (_) => List.generate(160, (_) => List.filled(3, 0.0)),
       ),
     );
 
-    for (int y = 0; y < 112; y++) {
-      for (int x = 0; x < 112; x++) {
+    for (int y = 0; y < 160; y++) {
+      for (int x = 0; x < 160; x++) {
         final pixel = image.getPixel(x, y);
 
-        // Normalize to [-1, 1] using correct MobileFaceNet preprocessing
+        // Normalize to [-1, 1] using standard FaceNet preprocessing
         // Formula: (pixel - 127.5) / 128
         final r = (pixel.r - 127.5) / 128.0;
         final g = (pixel.g - 127.5) / 128.0;
         final b = (pixel.b - 127.5) / 128.0;
 
-        // Fill both batch slots with the same image
         input[0][y][x][0] = r;
         input[0][y][x][1] = g;
         input[0][y][x][2] = b;
-
-        input[1][y][x][0] = r;
-        input[1][y][x][1] = g;
-        input[1][y][x][2] = b;
       }
     }
 

@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../main.dart' show cameras;
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
+import '../../widgets/face_guideline_painter.dart';
 
 enum FacePose { center, left, right, up, down }
 
@@ -46,7 +47,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
 
   // Current detected pose
   FacePose? _currentPose;
-  Face? _detectedFace;
 
   // Auto-capture state
   DateTime? _lastCaptureTime;
@@ -115,8 +115,13 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
       _isProcessing = true;
 
       try {
+        final rotation = _getInputImageRotation();
+
         // Detect faces
-        final faces = await _faceRecognitionService.detectFaces(cameraImage);
+        final faces = await _faceRecognitionService.detectFaces(
+          cameraImage,
+          rotation,
+        );
 
         if (faces.isNotEmpty && mounted) {
           final face = faces.first;
@@ -125,7 +130,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
           final pose = _detectPose(face);
 
           setState(() {
-            _detectedFace = face;
             _currentPose = pose;
           });
 
@@ -135,7 +139,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
           }
         } else {
           setState(() {
-            _detectedFace = null;
             _currentPose = null;
           });
         }
@@ -146,6 +149,16 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
         _isProcessing = false;
       }
     });
+  }
+
+  InputImageRotation _getInputImageRotation() {
+    final orientation = MediaQuery.of(context).orientation;
+
+    if (orientation == Orientation.landscape) {
+      return InputImageRotation.rotation0deg;
+    } else {
+      return InputImageRotation.rotation90deg;
+    }
   }
 
   FacePose? _detectPose(Face face) {
@@ -185,15 +198,20 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
     }
 
     try {
-      // Convert camera image to img.Image
-      final image = _convertToImage(cameraImage);
-      if (image == null) return;
+      final rotation = _getInputImageRotation();
 
-      // Extract embedding
-      final embedding = await _faceRecognitionService.extractFaceEmbedding(
-        image,
+      // Crop face directly from YUV using the service (handles rotation correctly)
+      final faceImage = _faceRecognitionService.cropFaceFromYUV(
+        cameraImage,
         face,
+        rotation,
       );
+
+      if (faceImage == null) return;
+
+      // Extract embedding from the cropped image
+      final embedding = await _faceRecognitionService
+          .getEmbeddingFromCroppedImage(faceImage);
 
       if (embedding == null) return;
 
@@ -202,7 +220,7 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
       final fileName = '${widget.personName}_${pose.name}.jpg';
       final file = File('${tempDir.path}/$fileName');
 
-      final jpg = img.encodeJpg(image);
+      final jpg = img.encodeJpg(faceImage);
       await file.writeAsBytes(jpg);
 
       // Store captured data
@@ -216,62 +234,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
     } catch (e) {
       print('Error capturing pose: $e');
     }
-  }
-
-  img.Image? _convertToImage(CameraImage cameraImage) {
-    try {
-      if (cameraImage.format.group == ImageFormatGroup.yuv420) {
-        return _convertYUV420(cameraImage);
-      } else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
-        return _convertBGRA8888(cameraImage);
-      }
-      return null;
-    } catch (e) {
-      print('Error converting camera image: $e');
-      return null;
-    }
-  }
-
-  img.Image _convertYUV420(CameraImage image) {
-    final width = image.width;
-    final height = image.height;
-
-    final yPlane = image.planes[0];
-    final uPlane = image.planes[1];
-    final vPlane = image.planes[2];
-
-    final imgImage = img.Image(width: width, height: height);
-
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final yIndex = y * yPlane.bytesPerRow + x;
-        final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
-
-        final yValue = yPlane.bytes[yIndex];
-        final uValue = uPlane.bytes[uvIndex];
-        final vValue = vPlane.bytes[uvIndex];
-
-        final r = (yValue + 1.370705 * (vValue - 128)).clamp(0, 255).toInt();
-        final g =
-            (yValue - 0.337633 * (uValue - 128) - 0.698001 * (vValue - 128))
-                .clamp(0, 255)
-                .toInt();
-        final b = (yValue + 1.732446 * (uValue - 128)).clamp(0, 255).toInt();
-
-        imgImage.setPixelRgba(x, y, r, g, b, 255);
-      }
-    }
-
-    return imgImage;
-  }
-
-  img.Image _convertBGRA8888(CameraImage image) {
-    return img.Image.fromBytes(
-      width: image.width,
-      height: image.height,
-      bytes: image.planes[0].bytes.buffer,
-      order: img.ChannelOrder.bgra,
-    );
   }
 
   void _submitEnrollment() {
@@ -413,14 +375,12 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
   }
 
   Widget _buildPoseGuideOverlay() {
-    if (_detectedFace == null) return const SizedBox();
-
     // Draw a circle guide for the face
     return CustomPaint(
-      painter: _FaceGuidePainter(
-        detectedFace: _detectedFace!,
-        currentPose: _currentPose,
+      painter: FaceGuidelinePainter(
+        color: _currentPose != null ? Colors.greenAccent : null,
       ),
+      size: Size.infinite,
     );
   }
 
@@ -518,35 +478,5 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
       case FacePose.down:
         return 'Tilt your head down slightly';
     }
-  }
-}
-
-class _FaceGuidePainter extends CustomPainter {
-  final Face detectedFace;
-  final FacePose? currentPose;
-
-  _FaceGuidePainter({required this.detectedFace, this.currentPose});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.0
-      ..color = currentPose != null ? Colors.greenAccent : Colors.white;
-
-    // Draw oval guide
-    final rect = detectedFace.boundingBox;
-    final ovalRect = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: size.width * 0.6,
-      height: size.height * 0.7,
-    );
-
-    canvas.drawOval(ovalRect, paint);
-  }
-
-  @override
-  bool shouldRepaint(_FaceGuidePainter oldDelegate) {
-    return oldDelegate.currentPose != currentPose;
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
@@ -14,6 +15,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart';
 
 import '../../main.dart' show cameras;
 import '../../providers/user_provider.dart';
@@ -25,6 +27,7 @@ import '../../utils/helpers.dart';
 import '../../widgets/face_detection_painter.dart';
 import '../../widgets/day_by_day_summary_widget.dart';
 
+import '../../widgets/face_guideline_painter.dart';
 
 enum FacePose { center, left, right, up, down }
 
@@ -66,6 +69,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   bool _isStreamActive = false;
 
   Timer? _processingTimer;
+  Timer? _clockTimer;
+  String _currentTime = '';
 
   // Enrollment mode state
   EnrollmentMode _enrollmentMode = EnrollmentMode.normal;
@@ -104,16 +109,36 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   // Floating action menu state
   bool _isMenuExpanded = false;
 
+  // Text Controllers
+  late TextEditingController _nameController;
+  late TextEditingController _relationshipController;
 
   @override
   void initState() {
     super.initState();
+    _nameController = TextEditingController();
+    _relationshipController = TextEditingController();
+    _updateTime();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _updateTime();
+    });
     _initializeApp();
+  }
+
+  void _updateTime() {
+    if (mounted) {
+      setState(() {
+        _currentTime = DateFormat('h:mm a').format(DateTime.now());
+      });
+    }
   }
 
   @override
   void dispose() {
     _processingTimer?.cancel();
+    _clockTimer?.cancel();
+    _nameController.dispose();
+    _relationshipController.dispose();
     if (_isStreamActive && _cameraController != null) {
       _cameraController!.stopImageStream();
     }
@@ -217,9 +242,14 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       _isProcessing = true;
 
       try {
+        final rotation = _getInputImageRotation();
+
         // Handle enrollment mode - capture poses
         if (_enrollmentMode == EnrollmentMode.capturingAngles) {
-          final faces = await _faceRecognitionService.detectFaces(cameraImage);
+          final faces = await _faceRecognitionService.detectFaces(
+            cameraImage,
+            rotation,
+          );
 
           if (faces.isNotEmpty && mounted) {
             final face = faces.first;
@@ -238,14 +268,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           // Process the camera frame
           final results = await _faceRecognitionService.processCameraFrame(
             cameraImage,
+            rotation,
           );
-
-          // print('DEBUG: Detected ${results.length} faces');
-          // for (var entry in results.entries) {
-          //   print(
-          //     'DEBUG: Face - Recognized as: ${entry.value?.name ?? "Unknown"}',
-          //   );
-          // }
 
           if (mounted) {
             setState(() {
@@ -264,6 +288,16 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         _isProcessing = false;
       }
     });
+  }
+
+  InputImageRotation _getInputImageRotation() {
+    final orientation = MediaQuery.of(context).orientation;
+
+    if (orientation == Orientation.landscape) {
+      return InputImageRotation.rotation0deg;
+    } else {
+      return InputImageRotation.rotation90deg;
+    }
   }
 
   Future<void> _handleFaceRecognition(
@@ -354,6 +388,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     }
 
     // Handle unknown faces
+    if (_enrollmentMode != EnrollmentMode.normal) return;
+
     final unknownFaceEntry = results.entries
         .where((entry) => entry.value == null)
         .firstOrNull;
@@ -471,6 +507,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   // ==================== ENROLLMENT WORKFLOW ====================
 
   Future<void> _promptEnrollment(Face face) async {
+    _nameController.clear();
+    _relationshipController.clear();
     _unknownFace = null;
     _unknownFaceFirstSeen = null;
 
@@ -479,19 +517,119 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Unknown Face Detected'),
-        content: const Text('Would you like to add this person?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Not Now'),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.3),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppColors.primary.withOpacity(0.85),
+                    AppColors.secondary.withOpacity(0.5),
+                  ],
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Icon
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.person_add,
+                      size: 40,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Title
+                  const Text(
+                    'Unknown Face Detected',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      shadows: [
+                        Shadow(
+                          offset: Offset(0, 1),
+                          blurRadius: 2,
+                          color: Colors.black26,
+                        ),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  // Content
+                  const Text(
+                    'Would you like to add this person?',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  // Actions
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          child: const Text('Not Now'),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: AppColors.primary,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Yes, Add',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Yes, Add'),
-          ),
-        ],
+        ),
       ),
     );
 
@@ -764,7 +902,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       print('═══════════════════════════════════════════════════════\n');
 
       // Fetch ALL summaries for this patient (simple query, no complex filtering)
-      final summaries = await _databaseService.getAllSummariesForPatient(patientId);
+      final summaries = await _databaseService.getAllSummariesForPatient(
+        patientId,
+      );
 
       print('\n📊 TOTAL SUMMARIES FOUND: ${summaries.length}');
       print('═══════════════════════════════════════════════════════\n');
@@ -777,7 +917,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
         if (mounted) {
           setState(() {
-            _dayByDaySummary = 'No activities recorded yet. Your daily summaries will appear here.';
+            _dayByDaySummary =
+                'No activities recorded yet. Your daily summaries will appear here.';
             _isLoadingSummary = false;
           });
         }
@@ -800,7 +941,8 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       for (var summary in summaries) {
         final timestamp = summary['timestamp'] as Timestamp;
         final date = timestamp.toDate();
-        final dateKey = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        final dateKey =
+            '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
         if (!summariesByDate.containsKey(dateKey)) {
           summariesByDate[dateKey] = [];
@@ -841,16 +983,23 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     }
   }
 
-  Future<String> _generateGeminiNarrative(Map<String, List<Map<String, dynamic>>> summariesByDate) async {
+  Future<String> _generateGeminiNarrative(
+    Map<String, List<Map<String, dynamic>>> summariesByDate,
+  ) async {
     try {
       // Build prompt for Gemini
       final buffer = StringBuffer();
-      buffer.writeln('You are a warm, empathetic storyteller helping someone with memory challenges.');
-      buffer.writeln('Create a detailed day-by-day summary of their recent activities.');
+      buffer.writeln(
+        'You are a warm, empathetic storyteller helping someone with memory challenges.',
+      );
+      buffer.writeln(
+        'Create a detailed day-by-day summary of their recent activities.',
+      );
       buffer.writeln('Be descriptive but concise.\n');
 
       // Sort dates (most recent first)
-      final sortedDates = summariesByDate.keys.toList()..sort((a, b) => b.compareTo(a));
+      final sortedDates = summariesByDate.keys.toList()
+        ..sort((a, b) => b.compareTo(a));
 
       buffer.writeln('Here are the activities:');
       buffer.writeln();
@@ -863,8 +1012,11 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         buffer.writeln('$dayName ($dateStr):');
         for (var activity in activities) {
           final timestamp = (activity['timestamp'] as Timestamp).toDate();
-          final time = '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
-          buffer.writeln('  - $time with ${activity['personName']}: ${activity['summary']}');
+          final time =
+              '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
+          buffer.writeln(
+            '  - $time with ${activity['personName']}: ${activity['summary']}',
+          );
         }
         buffer.writeln();
       }
@@ -874,10 +1026,16 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       buffer.writeln('- Use warm, conversational language');
       buffer.writeln('- Include specific times and details');
       buffer.writeln('- Focus on positive moments and connections');
-      buffer.writeln('- Start each day with the day name (e.g., "Today", "Yesterday")');
+      buffer.writeln(
+        '- Start each day with the day name (e.g., "Today", "Yesterday")',
+      );
       buffer.writeln('- Write as a flowing narrative, not a list');
-      buffer.writeln('- IMPORTANT: Format ALL person names in bold using markdown: **Name**');
-      buffer.writeln('  Example: "You spent time with **John** and **Sarah**."');
+      buffer.writeln(
+        '- IMPORTANT: Format ALL person names in bold using markdown: **Name**',
+      );
+      buffer.writeln(
+        '  Example: "You spent time with **John** and **Sarah**."',
+      );
       buffer.writeln();
       buffer.writeln('Create a warm day-by-day summary:');
 
@@ -895,12 +1053,17 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     } catch (e) {
       print('❌ Gemini error: $e');
       // Fallback to simple summary
-      return summariesByDate.entries.map((entry) {
-        final date = DateTime.parse(entry.key);
-        final dayName = _getDayName(date);
-        final people = entry.value.map((a) => a['personName']).toSet().join(', ');
-        return '$dayName: You spent time with $people.';
-      }).join('\n\n');
+      return summariesByDate.entries
+          .map((entry) {
+            final date = DateTime.parse(entry.key);
+            final dayName = _getDayName(date);
+            final people = entry.value
+                .map((a) => a['personName'])
+                .toSet()
+                .join(', ');
+            return '$dayName: You spent time with $people.';
+          })
+          .join('\n\n');
     }
   }
 
@@ -915,7 +1078,6 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     if (difference < 7) return '$difference days ago';
     return '${date.month}/${date.day}/${date.year}';
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -966,15 +1128,24 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           child: Center(child: CameraPreview(_cameraController!)),
         ),
 
+        // Face Guideline Overlay
+        CustomPaint(painter: FaceGuidelinePainter(), size: Size.infinite),
+
         // Face detection overlay
         if (_detectedFaces.isNotEmpty)
           CustomPaint(
             painter: FaceDetectionPainter(
               faces: _detectedFaces.keys.toList(),
-              imageSize: Size(
-                _cameraController!.value.previewSize!.height,
-                _cameraController!.value.previewSize!.width,
-              ),
+              imageSize:
+                  MediaQuery.of(context).orientation == Orientation.landscape
+                  ? Size(
+                      _cameraController!.value.previewSize!.width,
+                      _cameraController!.value.previewSize!.height,
+                    )
+                  : Size(
+                      _cameraController!.value.previewSize!.height,
+                      _cameraController!.value.previewSize!.width,
+                    ),
             ),
           ),
 
@@ -982,12 +1153,19 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         ..._detectedFaces.entries.map((entry) {
           if (entry.value != null) {
             return ArOverlayWidget(
+              key: ValueKey(entry.key.trackingId),
               face: entry.key,
               knownFace: entry.value!,
-              imageSize: Size(
-                _cameraController!.value.previewSize!.height,
-                _cameraController!.value.previewSize!.width,
-              ),
+              imageSize:
+                  MediaQuery.of(context).orientation == Orientation.landscape
+                  ? Size(
+                      _cameraController!.value.previewSize!.width,
+                      _cameraController!.value.previewSize!.height,
+                    )
+                  : Size(
+                      _cameraController!.value.previewSize!.height,
+                      _cameraController!.value.previewSize!.width,
+                    ),
               recentLogs: _faceActivityLogs[entry.value!.id] ?? [],
             );
           }
@@ -1000,7 +1178,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
-                // Back button and status
+                // Back button
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -1070,28 +1248,114 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                       ],
                     ),
                   ),
-                // Status message
-                Container(
+              ],
+            ),
+          ),
+        ),
+
+        // Bottom Left: Time and Location
+        Positioned(
+          bottom: 24,
+          left: 24,
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _currentTime,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 48,
+                    fontWeight: FontWeight.w300,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(0, 2),
+                        blurRadius: 4,
+                        color: Colors.black45,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on,
+                      color: Colors.white70,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Holy Angel University Foundation',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        shadows: const [
+                          Shadow(
+                            offset: Offset(0, 1),
+                            blurRadius: 2,
+                            color: Colors.black45,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Bottom Right: Face Count
+        Positioned(
+          bottom: 24,
+          right: 24,
+          child: SafeArea(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(25),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.9),
+                    color: AppColors.primary.withOpacity(0.6),
                     borderRadius: BorderRadius.circular(25),
-                  ),
-                  child: Text(
-                    _detectedFaces.isEmpty
-                        ? 'Looking for faces...'
-                        : '${_detectedFaces.length} face(s) detected',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.2),
+                      width: 1,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.face, color: Colors.white, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        _detectedFaces.isEmpty
+                            ? 'Scanning...'
+                            : '${_detectedFaces.length} Detected',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1221,7 +1485,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                                       children: [
                                         Icon(
                                           Icons.calendar_today_rounded,
-                                          color: Colors.white.withValues(alpha: 0.9),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.9,
+                                          ),
                                           size: 20,
                                         ),
                                         const SizedBox(width: 8),
@@ -1261,20 +1527,22 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                             child: InkWell(
                               onTap: () async {
                                 print('🆘 SOS Button Pressed!');
-                                
+
                                 final userProvider = Provider.of<UserProvider>(
                                   context,
                                   listen: false,
                                 );
                                 final patientId = userProvider.currentUser!.uid;
-                                
+
                                 setState(() {
                                   _isMenuExpanded = false;
                                 });
-                                
+
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('🆘 SOS Triggered (Debug Mode)'),
+                                    content: Text(
+                                      '🆘 SOS Triggered (Debug Mode)',
+                                    ),
                                     backgroundColor: Colors.red,
                                     duration: Duration(seconds: 2),
                                   ),
@@ -1318,7 +1586,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                                       children: [
                                         Icon(
                                           Icons.emergency_rounded,
-                                          color: Colors.white.withValues(alpha: 0.9),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.9,
+                                          ),
                                           size: 20,
                                         ),
                                         const SizedBox(width: 8),
@@ -1406,68 +1676,153 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   }
 
   Widget _buildNameInputOverlay() {
-    final nameController = TextEditingController();
+    // Controller is now in state
     return Container(
-      color: Colors.black.withValues(alpha: 0.8),
+      color: Colors.black.withOpacity(0.4), // Semi-transparent background
       child: SafeArea(
         child: Center(
-          child: Card(
-            margin: const EdgeInsets.all(24),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Enter Person\'s Name',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Name',
-                      border: OutlineInputBorder(),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.3),
+                      width: 1.5,
                     ),
-                    autofocus: true,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primary.withOpacity(0.85),
+                        AppColors.secondary.withOpacity(0.5),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _isListeningForName
-                              ? () => _stopVoiceInput(true)
-                              : () => _startVoiceInput(true),
-                          icon: Icon(
-                            _isListeningForName ? Icons.stop : Icons.mic,
-                          ),
-                          label: Text(
-                            _isListeningForName
-                                ? _voiceInputBuffer.isEmpty
-                                      ? 'Listening...'
-                                      : _voiceInputBuffer
-                                : 'Voice Input',
-                          ),
+                      const Text(
+                        'Enter Person\'s Name',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          shadows: [
+                            Shadow(
+                              offset: Offset(0, 1),
+                              blurRadius: 2,
+                              color: Colors.black26,
+                            ),
+                          ],
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _nameController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'Name',
+                          labelStyle: const TextStyle(color: Colors.white70),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(
+                              color: Colors.white.withOpacity(0.5),
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderSide: const BorderSide(color: Colors.white),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.1),
+                        ),
+                        autofocus: true,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _isListeningForName
+                                  ? () => _stopVoiceInput(true)
+                                  : () => _startVoiceInput(true),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: BorderSide(
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: Icon(
+                                _isListeningForName ? Icons.stop : Icons.mic,
+                              ),
+                              label: Text(
+                                _isListeningForName
+                                    ? _voiceInputBuffer.isEmpty
+                                          ? 'Listening...'
+                                          : _voiceInputBuffer
+                                    : 'Voice Input',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton(
+                            onPressed: _cancelEnrollment,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Cancel'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () =>
+                                _collectNameInput(_nameController.text),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: AppColors.primary,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text(
+                              'Next',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      TextButton(
-                        onPressed: _cancelEnrollment,
-                        child: const Text('Cancel'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () => _collectNameInput(nameController.text),
-                        child: const Text('Next'),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -1477,72 +1832,156 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   }
 
   Widget _buildRelationshipInputOverlay() {
-    final relationshipController = TextEditingController();
+    // Controller is now in state
     return Container(
-      color: Colors.black.withValues(alpha: 0.8),
+      color: Colors.black.withOpacity(0.4), // Semi-transparent background
       child: SafeArea(
         child: Center(
-          child: Card(
-            margin: const EdgeInsets.all(24),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Relationship',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: relationshipController,
-                    decoration: const InputDecoration(
-                      labelText: 'e.g., Friend, Family',
-                      border: OutlineInputBorder(),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.3),
+                      width: 1.5,
                     ),
-                    autofocus: true,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primary.withOpacity(0.85),
+                        AppColors.secondary.withOpacity(0.5),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _isListeningForRelationship
-                              ? () => _stopVoiceInput(false)
-                              : () => _startVoiceInput(false),
-                          icon: Icon(
-                            _isListeningForRelationship
-                                ? Icons.stop
-                                : Icons.mic,
-                          ),
-                          label: Text(
-                            _isListeningForRelationship
-                                ? _voiceInputBuffer.isEmpty
-                                      ? 'Listening...'
-                                      : _voiceInputBuffer
-                                : 'Voice Input',
-                          ),
+                      const Text(
+                        'Relationship',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          shadows: [
+                            Shadow(
+                              offset: Offset(0, 1),
+                              blurRadius: 2,
+                              color: Colors.black26,
+                            ),
+                          ],
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _relationshipController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'e.g., Friend, Family',
+                          labelStyle: const TextStyle(color: Colors.white70),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(
+                              color: Colors.white.withOpacity(0.5),
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderSide: const BorderSide(color: Colors.white),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.1),
+                        ),
+                        autofocus: true,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _isListeningForRelationship
+                                  ? () => _stopVoiceInput(false)
+                                  : () => _startVoiceInput(false),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: BorderSide(
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: Icon(
+                                _isListeningForRelationship
+                                    ? Icons.stop
+                                    : Icons.mic,
+                              ),
+                              label: Text(
+                                _isListeningForRelationship
+                                    ? _voiceInputBuffer.isEmpty
+                                          ? 'Listening...'
+                                          : _voiceInputBuffer
+                                    : 'Voice Input',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton(
+                            onPressed: _cancelEnrollment,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Cancel'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => _collectRelationshipInput(
+                              _relationshipController.text,
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: AppColors.primary,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text(
+                              'Start Capture',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      TextButton(
-                        onPressed: _cancelEnrollment,
-                        child: const Text('Cancel'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () => _collectRelationshipInput(
-                          relationshipController.text,
-                        ),
-                        child: const Text('Start Capture'),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
           ),
