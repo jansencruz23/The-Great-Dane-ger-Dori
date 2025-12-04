@@ -41,7 +41,9 @@ class SpeechService {
         onResult(_currentTranscript);
       },
       listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
+      pauseFor: const Duration(
+        seconds: 3, // Auto-advance after 3 seconds of silence
+      ),
       listenOptions: stt.SpeechListenOptions(
         partialResults: true,
         cancelOnError: true,

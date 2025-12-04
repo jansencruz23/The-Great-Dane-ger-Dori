@@ -6,15 +6,16 @@ import 'database_service.dart';
 import 'summarization_service.dart';
 
 /// Service for scheduling daily summary notifications and TTS
-/// 
+///
 /// TODO: To implement scheduled daily summaries:
 /// 1. Add flutter_local_notifications to pubspec.yaml
 /// 2. Add timezone package to pubspec.yaml
 /// 3. Configure Android/iOS notification permissions
 /// 4. Call scheduleDailySummary() when user logs in
 /// 5. Implement background task handling for TTS
-class ScheduledSummaryService {
-  final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+class ScheduledSummaryServicse {
+  final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
   final DatabaseService _databaseService = DatabaseService();
   final SummarizationService _summarizationService = SummarizationService();
   final FlutterTts _flutterTts = FlutterTts();
@@ -23,27 +24,29 @@ class ScheduledSummaryService {
   Future<void> initialize() async {
     // Initialize timezone
     tz.initializeTimeZones();
-    
+
     // Android initialization settings
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+
     // iOS initialization settings
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-    
+
     const initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
-    
+
     await _notifications.initialize(
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
-    
+
     // Request permissions
     await _requestPermissions();
   }
@@ -52,21 +55,21 @@ class ScheduledSummaryService {
   Future<void> _requestPermissions() async {
     // Android 13+ requires runtime permission
     await _notifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.requestNotificationsPermission();
-    
+
     // iOS permissions
     await _notifications
-        .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
   /// Schedule daily summary at a specific time (e.g., 8 PM every day)
-  /// 
+  ///
   /// Example usage:
   /// ```dart
   /// await scheduleDailySummary(
@@ -90,14 +93,14 @@ class ScheduledSummaryService {
       hour,
       minute,
     );
-    
+
     // If the time has passed today, schedule for tomorrow
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
-    
+
     print('📅 Scheduled daily summary for: $scheduledDate');
-    
+
     // Schedule the notification
     await _notifications.zonedSchedule(
       0, // Notification ID
@@ -131,21 +134,21 @@ class ScheduledSummaryService {
   Future<void> _onNotificationTapped(NotificationResponse response) async {
     final patientId = response.payload;
     if (patientId == null) return;
-    
+
     print('🔔 Notification tapped, generating summary for: $patientId');
-    
+
     try {
       // Fetch activity logs
       final logsByDate = await _databaseService.getActivityLogsByDate(
         patientId,
         daysBack: 1, // Just today's summary
       );
-      
+
       if (logsByDate.isEmpty) {
         await _speak('No activities recorded today.');
         return;
       }
-      
+
       // Generate summary
       final summaries = <Map<String, dynamic>>[];
       for (var entry in logsByDate.entries) {
@@ -157,27 +160,27 @@ class ScheduledSummaryService {
           });
         }
       }
-      
+
       // Group by date and generate narrative
       final summariesByDate = <String, List<Map<String, dynamic>>>{};
       for (var summary in summaries) {
         final timestamp = summary['timestamp'] as DateTime;
-        final dateKey = '${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}';
-        
+        final dateKey =
+            '${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}';
+
         if (!summariesByDate.containsKey(dateKey)) {
           summariesByDate[dateKey] = [];
         }
         summariesByDate[dateKey]!.add(summary);
       }
-      
+
       // TODO: Call Gemini to generate narrative summary
       // For now, create a simple summary
       final people = summaries.map((s) => s['personName']).toSet().join(', ');
       final summaryText = 'Today you spent time with $people.';
-      
+
       // Speak the summary
       await _speak(summaryText);
-      
     } catch (e) {
       print('❌ Error generating scheduled summary: $e');
       await _speak('Sorry, I could not generate your summary.');
@@ -190,7 +193,7 @@ class ScheduledSummaryService {
     await _flutterTts.setSpeechRate(0.5);
     await _flutterTts.setVolume(1.0);
     await _flutterTts.setPitch(1.0);
-    
+
     // Remove markdown
     final cleanText = text.replaceAll(RegExp(r'\*\*'), '');
     await _flutterTts.speak(cleanText);
@@ -223,7 +226,7 @@ class ScheduledSummaryService {
   }
 
   /// Send SOS notification to caregiver (for debugging)
-  /// 
+  ///
   /// TODO: Implement actual SOS functionality:
   /// 1. Get caregiver contact from database
   /// 2. Send push notification to caregiver's device
@@ -235,7 +238,7 @@ class ScheduledSummaryService {
   }) async {
     print('🆘 SOS TRIGGERED for patient: $patientId');
     print('   Message: ${message ?? "Emergency assistance needed"}');
-    
+
     // Send local notification (for debugging)
     await _notifications.show(
       911, // SOS notification ID
@@ -258,11 +261,11 @@ class ScheduledSummaryService {
         ),
       ),
     );
-    
+
     // TODO: Send to caregiver's device via Firebase Cloud Messaging
     // TODO: Send SMS to caregiver
     // TODO: Log SOS event in database
-    
+
     print('✅ SOS notification sent (debug mode)');
   }
 }

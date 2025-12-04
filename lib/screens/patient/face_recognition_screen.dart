@@ -26,6 +26,8 @@ import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
 
 import '../../widgets/day_by_day_summary_widget.dart';
+import '../../widgets/enrollment_bubble_widget.dart';
+import '../../widgets/enrollment_prompt_widget.dart';
 
 enum FacePose { center, left, right, up, down }
 
@@ -97,7 +99,11 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   // Voice input state
   bool _isListeningForName = false;
   bool _isListeningForRelationship = false;
+  bool _isListeningForEnrollmentPrompt = false;
   String _voiceInputBuffer = '';
+  EnrollmentStep? _currentEnrollmentStep;
+  String _enrollmentPromptText = '';
+  String _enrollmentPromptSubtext = '';
 
   // Day-by-day summary state
   bool _showDayByDaySummary = false;
@@ -107,15 +113,10 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   // Floating action menu state
   bool _isMenuExpanded = false;
 
-  // Text Controllers
-  late TextEditingController _nameController;
-  late TextEditingController _relationshipController;
-
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController();
-    _relationshipController = TextEditingController();
+
     _updateTime();
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _updateTime();
@@ -135,8 +136,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   void dispose() {
     _processingTimer?.cancel();
     _clockTimer?.cancel();
-    _nameController.dispose();
-    _relationshipController.dispose();
+
     if (_isStreamActive && _cameraController != null) {
       _cameraController!.stopImageStream();
     }
@@ -505,158 +505,162 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   // ==================== ENROLLMENT WORKFLOW ====================
 
   Future<void> _promptEnrollment(Face face) async {
-    _nameController.clear();
-    _relationshipController.clear();
-    _unknownFace = null;
+    _unknownFace = face;
     _unknownFaceFirstSeen = null;
 
-    setState(() => _enrollmentMode = EnrollmentMode.prompting);
+    setState(() {
+      _enrollmentMode = EnrollmentMode.prompting;
+      _currentEnrollmentStep = EnrollmentStep.promptEnrollment;
+      _enrollmentPromptText = 'Would you like to enroll this face?';
+      _enrollmentPromptSubtext = 'Say "Yes" or "No"';
+      _isListeningForEnrollmentPrompt = true;
+      _voiceInputBuffer = '';
+    });
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.3),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppColors.primary.withOpacity(0.85),
-                    AppColors.secondary.withOpacity(0.5),
-                  ],
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Icon
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.person_add,
-                      size: 40,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Title
-                  const Text(
-                    'Unknown Face Detected',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      shadows: [
-                        Shadow(
-                          offset: Offset(0, 1),
-                          blurRadius: 2,
-                          color: Colors.black26,
-                        ),
-                      ],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  // Content
-                  const Text(
-                    'Would you like to add this person?',
-                    style: TextStyle(color: Colors.white, fontSize: 16),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  // Actions
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () => Navigator.of(context).pop(false),
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                          child: const Text('Not Now'),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.of(context).pop(true),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: AppColors.primary,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Yes, Add',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    // Start voice listening for yes/no response
+    try {
+      await _speechService.startListening(
+        onResult: (text) {
+          setState(() => _voiceInputBuffer = text.toLowerCase());
 
-    if (confirm == true && mounted) {
-      setState(() => _enrollmentMode = EnrollmentMode.collectingName);
-    } else {
-      setState(() => _enrollmentMode = EnrollmentMode.normal);
+          // Check for cancel command
+          if (_voiceInputBuffer.contains('cancel') ||
+              _voiceInputBuffer.contains('stop') ||
+              _voiceInputBuffer.contains('nevermind') ||
+              _voiceInputBuffer.contains('never mind')) {
+            _handleEnrollmentNo(); // Cancel is same as saying "no"
+            return;
+          }
+
+          // Check for yes/no responses
+          if (_voiceInputBuffer.contains('yes') ||
+              _voiceInputBuffer.contains('yeah') ||
+              _voiceInputBuffer.contains('yep') ||
+              _voiceInputBuffer.contains('sure') ||
+              _voiceInputBuffer.contains('okay') ||
+              _voiceInputBuffer.contains('ok')) {
+            _handleEnrollmentYes();
+          } else if (_voiceInputBuffer.contains('no') ||
+              _voiceInputBuffer.contains('nope') ||
+              _voiceInputBuffer.contains('nah')) {
+            _handleEnrollmentNo();
+          }
+        },
+      );
+    } catch (e) {
+      print('Error starting voice input: $e');
     }
+  }
+
+  Future<void> _handleEnrollmentYes() async {
+    // Stop current listening
+    try {
+      await _speechService.stopListening();
+    } catch (e) {
+      print('Error stopping voice: $e');
+    }
+
+    setState(() {
+      _enrollmentMode = EnrollmentMode.collectingName;
+      _currentEnrollmentStep = EnrollmentStep.collectingName;
+      _enrollmentPromptText = 'What is their name?';
+      _isListeningForEnrollmentPrompt = false;
+      _isListeningForName = true;
+      _voiceInputBuffer = '';
+    });
+
+    // Start listening for name
+    _startVoiceInput(true);
+  }
+
+  Future<void> _handleEnrollmentNo() async {
+    // Stop current listening
+    try {
+      await _speechService.stopListening();
+    } catch (e) {
+      print('Error stopping voice: $e');
+    }
+
+    setState(() {
+      _enrollmentMode = EnrollmentMode.normal;
+      _currentEnrollmentStep = null;
+      _isListeningForEnrollmentPrompt = false;
+      _voiceInputBuffer = '';
+      _unknownFace = null;
+      _unknownFaceFirstSeen = null;
+    });
   }
 
   Future<void> _collectNameInput(String name) async {
     if (name.trim().isEmpty) return;
     _enrollmentName = name.trim();
-    setState(() => _enrollmentMode = EnrollmentMode.collectingRelationship);
+
+    // Stop current listening
+    try {
+      await _speechService.stopListening();
+    } catch (e) {
+      print('Error stopping voice: $e');
+    }
+
+    setState(() {
+      _enrollmentMode = EnrollmentMode.collectingRelationship;
+      _currentEnrollmentStep = EnrollmentStep.collectingRelationship;
+      _enrollmentPromptText = 'What is their relationship to you?';
+      _enrollmentPromptSubtext =
+          'Say their relationship, then say "next" or "done" (or say "cancel" to stop)';
+      _isListeningForName = false;
+      _isListeningForRelationship = true;
+      _voiceInputBuffer = '';
+    });
+
+    // Start listening for relationship
+    _startVoiceInput(false);
   }
 
   Future<void> _collectRelationshipInput(String relationship) async {
     if (relationship.trim().isEmpty) return;
     _enrollmentRelationship = relationship.trim();
-    setState(() => _enrollmentMode = EnrollmentMode.capturingAngles);
+
+    // Stop current listening
+    try {
+      await _speechService.stopListening();
+    } catch (e) {
+      print('Error stopping voice: $e');
+    }
+
+    setState(() {
+      _enrollmentMode = EnrollmentMode.capturingAngles;
+      _currentEnrollmentStep = null;
+      _enrollmentPromptText = 'Capturing face angles...';
+      _enrollmentPromptSubtext = 'Please turn your head slowly';
+      _isListeningForRelationship = false;
+      _voiceInputBuffer = '';
+    });
   }
 
-  void _cancelEnrollment() {
+  void _cancelEnrollment() async {
+    // Stop any active voice listening
+    try {
+      await _speechService.stopListening();
+    } catch (e) {
+      print('Error stopping voice: $e');
+    }
+
     setState(() {
       _enrollmentMode = EnrollmentMode.normal;
+      _currentEnrollmentStep = null;
       _enrollmentImages.clear();
       _enrollmentEmbeddings.clear();
       _enrollmentName = '';
       _enrollmentRelationship = '';
+      _enrollmentPromptText = '';
+      _enrollmentPromptSubtext = '';
+      _isListeningForEnrollmentPrompt = false;
+      _isListeningForName = false;
+      _isListeningForRelationship = false;
+      _voiceInputBuffer = '';
+      _unknownFace = null;
+      _unknownFaceFirstSeen = null;
     });
   }
 
@@ -713,6 +717,19 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
   // Voice input helpers
   Future<void> _startVoiceInput(bool isForName) async {
+    print('🎤 Starting voice input for ${isForName ? "name" : "relationship"}');
+
+    // ALWAYS restart speech service for clean state
+    try {
+      print('🛑 Stopping any existing speech recognition...');
+      await _speechService.stopListening();
+      // Small delay to ensure clean stop
+      await Future.delayed(const Duration(milliseconds: 300));
+      print('✅ Speech service stopped');
+    } catch (e) {
+      print('⚠️ Error stopping speech (might not be running): $e');
+    }
+
     setState(() {
       if (isForName) {
         _isListeningForName = true;
@@ -723,35 +740,45 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     });
 
     try {
+      print('🎤 Starting fresh speech recognition session...');
       await _speechService.startListening(
         onResult: (text) {
+          // Just update the buffer, don't proceed yet
           setState(() => _voiceInputBuffer = text);
+
+          // Enhanced debug logging
+          print('═══════════════════════════════════════════════════');
+          print('DEBUG: Voice input received: "$text"');
+          print('═══════════════════════════════════════════════════');
         },
       );
-    } catch (e) {
-      print('Error starting voice input: $e');
-    }
-  }
+      print('✅ Speech recognition started successfully');
 
-  Future<void> _stopVoiceInput(bool isForName) async {
-    try {
-      final result = await _speechService.stopListening();
+      // Wait for speech to finish (pauseFor will trigger auto-stop after 3 seconds)
+      await Future.delayed(
+        const Duration(seconds: 5),
+      ); // Wait longer than listenFor
 
-      if (result.isNotEmpty) {
+      // Get the final transcript after speech service stops
+      final finalInput = await _speechService.stopListening();
+
+      print('DEBUG: Speech finished. Final input: "$finalInput"');
+
+      // Auto-proceed with whatever was said
+      if (finalInput.trim().isNotEmpty) {
+        print('DEBUG: ✓ Auto-proceeding with input: "$finalInput"');
         if (isForName) {
-          await _collectNameInput(result);
+          _collectNameInput(finalInput);
         } else {
-          await _collectRelationshipInput(result);
+          _collectRelationshipInput(finalInput);
         }
+      } else {
+        print('DEBUG: ⚠ No input received, restarting...');
+        // Restart listening if nothing was said
+        _startVoiceInput(isForName);
       }
     } catch (e) {
-      print('Error stopping voice input: $e');
-    } finally {
-      setState(() {
-        _isListeningForName = false;
-        _isListeningForRelationship = false;
-        _voiceInputBuffer = '';
-      });
+      print('❌ Error starting voice input: $e');
     }
   }
 
@@ -1151,6 +1178,45 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           return const SizedBox.shrink();
         }),
 
+        // Enrollment bubble for unknown faces
+        if (_enrollmentMode != EnrollmentMode.normal &&
+            _unknownFace != null &&
+            _currentEnrollmentStep != null)
+          EnrollmentBubbleWidget(
+            face: _unknownFace!,
+            imageSize:
+                MediaQuery.of(context).orientation == Orientation.landscape
+                ? Size(
+                    _cameraController!.value.previewSize!.width,
+                    _cameraController!.value.previewSize!.height,
+                  )
+                : Size(
+                    _cameraController!.value.previewSize!.height,
+                    _cameraController!.value.previewSize!.width,
+                  ),
+            step: _currentEnrollmentStep!,
+            voiceBuffer: _voiceInputBuffer,
+            isListening:
+                _isListeningForEnrollmentPrompt ||
+                _isListeningForName ||
+                _isListeningForRelationship,
+            onYes: _handleEnrollmentYes,
+            onNo: _handleEnrollmentNo,
+            onCancel: _cancelEnrollment,
+          ),
+
+        // Top-left prompt text
+        if (_enrollmentMode != EnrollmentMode.normal &&
+            _enrollmentPromptText.isNotEmpty)
+          EnrollmentPromptWidget(
+            promptText: _enrollmentPromptText,
+            subtext: _enrollmentPromptSubtext,
+            isListening:
+                _isListeningForEnrollmentPrompt ||
+                _isListeningForName ||
+                _isListeningForRelationship,
+          ),
+
         // Top controls
         SafeArea(
           child: Padding(
@@ -1322,12 +1388,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           ),
 
         // Enrollment UI Overlays
-        if (_enrollmentMode == EnrollmentMode.collectingName)
-          _buildNameInputOverlay(),
-        if (_enrollmentMode == EnrollmentMode.collectingRelationship)
-          _buildRelationshipInputOverlay(),
         if (_enrollmentMode == EnrollmentMode.capturingAngles)
           _buildEnrollmentCaptureOverlay(),
+
         if (_enrollmentMode == EnrollmentMode.saving) _buildSavingOverlay(),
 
         // Recording Indicator (Positioned lower to avoid overlap)
@@ -1625,321 +1688,6 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildNameInputOverlay() {
-    // Controller is now in state
-    return Container(
-      color: Colors.black.withOpacity(0.4), // Semi-transparent background
-      child: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.3),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.primary.withOpacity(0.85),
-                        AppColors.secondary.withOpacity(0.5),
-                      ],
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Enter Person\'s Name',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          shadows: [
-                            Shadow(
-                              offset: Offset(0, 1),
-                              blurRadius: 2,
-                              color: Colors.black26,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _nameController,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          labelText: 'Name',
-                          labelStyle: const TextStyle(color: Colors.white70),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: Colors.white.withOpacity(0.5),
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.white),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white.withOpacity(0.1),
-                        ),
-                        autofocus: true,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _isListeningForName
-                                  ? () => _stopVoiceInput(true)
-                                  : () => _startVoiceInput(true),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: BorderSide(
-                                  color: Colors.white.withOpacity(0.5),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              icon: Icon(
-                                _isListeningForName ? Icons.stop : Icons.mic,
-                              ),
-                              label: Text(
-                                _isListeningForName
-                                    ? _voiceInputBuffer.isEmpty
-                                          ? 'Listening...'
-                                          : _voiceInputBuffer
-                                    : 'Voice Input',
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          TextButton(
-                            onPressed: _cancelEnrollment,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('Cancel'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () =>
-                                _collectNameInput(_nameController.text),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: AppColors.primary,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: const Text(
-                              'Next',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRelationshipInputOverlay() {
-    // Controller is now in state
-    return Container(
-      color: Colors.black.withOpacity(0.4), // Semi-transparent background
-      child: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.3),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.primary.withOpacity(0.85),
-                        AppColors.secondary.withOpacity(0.5),
-                      ],
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Relationship',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          shadows: [
-                            Shadow(
-                              offset: Offset(0, 1),
-                              blurRadius: 2,
-                              color: Colors.black26,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _relationshipController,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          labelText: 'e.g., Friend, Family',
-                          labelStyle: const TextStyle(color: Colors.white70),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: Colors.white.withOpacity(0.5),
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(color: Colors.white),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white.withOpacity(0.1),
-                        ),
-                        autofocus: true,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _isListeningForRelationship
-                                  ? () => _stopVoiceInput(false)
-                                  : () => _startVoiceInput(false),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: BorderSide(
-                                  color: Colors.white.withOpacity(0.5),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              icon: Icon(
-                                _isListeningForRelationship
-                                    ? Icons.stop
-                                    : Icons.mic,
-                              ),
-                              label: Text(
-                                _isListeningForRelationship
-                                    ? _voiceInputBuffer.isEmpty
-                                          ? 'Listening...'
-                                          : _voiceInputBuffer
-                                    : 'Voice Input',
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          TextButton(
-                            onPressed: _cancelEnrollment,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text('Cancel'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () => _collectRelationshipInput(
-                              _relationshipController.text,
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: AppColors.primary,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 12,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: const Text(
-                              'Start Capture',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
