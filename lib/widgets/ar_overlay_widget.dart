@@ -37,26 +37,36 @@ class ArOverlayWidget extends StatelessWidget {
     double top;
     double width = rect.width * scaleX;
 
+    ArrowDirection arrowDirection;
+    double
+    arrowOffset; // Offset from the start of the bubble (top for landscape, left for portrait)
+
     if (isLandscape) {
       // Landscape: Position to the RIGHT of the face
       width = 280; // Fixed width for landscape overlay
       left = (rect.right * scaleX) + 20;
       top = (rect.top * scaleY);
+      arrowDirection = ArrowDirection.left; // Arrow on left side of bubble
+      arrowOffset = (rect.height * scaleY) / 2;
 
       // Check if there's enough space on the right
       if (left + width > screenSize.width) {
         // Position to the LEFT if no space on right
         left = (rect.left * scaleX) - width - 20;
+        arrowDirection = ArrowDirection.right; // Arrow on right side of bubble
       }
     } else {
       // Portrait: Position BELOW the face
       left = rect.left * scaleX;
       width = rect.width * scaleX;
       top = (rect.bottom * scaleY) + 20;
+      arrowDirection = ArrowDirection.top; // Arrow on top of bubble
+      arrowOffset = (rect.width * scaleX) / 2;
 
       // Check if there's enough space at the bottom
       if (top + 200 > screenSize.height) {
         top = (rect.top * scaleY) - 220; // Position above
+        arrowDirection = ArrowDirection.bottom; // Arrow on bottom of bubble
       }
     }
 
@@ -67,8 +77,49 @@ class ArOverlayWidget extends StatelessWidget {
       top: top.clamp(40.0, screenSize.height - 250),
       child: SizedBox(
         width: width.clamp(200.0, screenSize.width - 40),
-        child: _buildARBubble(context),
+        child: _buildBubbleWithArrow(context, arrowDirection, arrowOffset),
       ),
+    );
+  }
+
+  Widget _buildBubbleWithArrow(
+    BuildContext context,
+    ArrowDirection direction,
+    double offset,
+  ) {
+    const double arrowSize = 12.0;
+    const double arrowBase = 16.0; // Width of the arrow base
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _buildARBubble(context),
+        Positioned(
+          left:
+              direction == ArrowDirection.top ||
+                  direction == ArrowDirection.bottom
+              ? offset - (arrowBase / 2)
+              : (direction == ArrowDirection.right ? null : -arrowSize),
+          right: direction == ArrowDirection.right ? -arrowSize : null,
+          top:
+              direction == ArrowDirection.left ||
+                  direction == ArrowDirection.right
+              ? offset - (arrowBase / 2)
+              : (direction == ArrowDirection.bottom ? null : -arrowSize),
+          bottom: direction == ArrowDirection.bottom ? -arrowSize : null,
+          child: CustomPaint(
+            painter: ArrowPainter(
+              color: AppColors.primary.withOpacity(0.85),
+              direction: direction,
+            ),
+            size:
+                direction == ArrowDirection.top ||
+                    direction == ArrowDirection.bottom
+                ? const Size(arrowBase, arrowSize)
+                : const Size(arrowSize, arrowBase),
+          ),
+        ),
+      ],
     );
   }
 
@@ -332,4 +383,49 @@ class ArOverlayWidget extends StatelessWidget {
 
     return '${AppStrings.lastSeen} ${Helpers.getRelativeTime(knownFace.lastSeenAt!)}';
   }
+}
+
+enum ArrowDirection { left, right, top, bottom }
+
+class ArrowPainter extends CustomPainter {
+  final Color color;
+  final ArrowDirection direction;
+
+  ArrowPainter({required this.color, required this.direction});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+    switch (direction) {
+      case ArrowDirection.left:
+        path.moveTo(size.width, 0);
+        path.lineTo(0, size.height / 2);
+        path.lineTo(size.width, size.height);
+        break;
+      case ArrowDirection.right:
+        path.moveTo(0, 0);
+        path.lineTo(size.width, size.height / 2);
+        path.lineTo(0, size.height);
+        break;
+      case ArrowDirection.top:
+        path.moveTo(0, size.height);
+        path.lineTo(size.width / 2, 0);
+        path.lineTo(size.width, size.height);
+        break;
+      case ArrowDirection.bottom:
+        path.moveTo(0, 0);
+        path.lineTo(size.width / 2, size.height);
+        path.lineTo(size.width, 0);
+        break;
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -1166,33 +1166,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                     const Spacer(),
-                    if (_isRecording)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(
-                              Icons.fiber_manual_record,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Recording',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      const SizedBox(width: 48), // Spacer for alignment
+                    const SizedBox(width: 48), // Spacer for alignment
                   ],
                 ),
 
