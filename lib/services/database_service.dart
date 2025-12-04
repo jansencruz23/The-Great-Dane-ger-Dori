@@ -62,6 +62,31 @@ class DatabaseService {
     }
   }
 
+  Future<void> deleteUser(String uid) async {
+    try {
+      // Get the user to check if it's a patient
+      final user = await getUser(uid);
+
+      if (user != null && user.caregiverId != null) {
+        // If it's a patient, remove from caregiver's patient list
+        await _firestore
+            .collection(AppConstants.usersCollection)
+            .doc(user.caregiverId)
+            .update({
+              'patientIds': FieldValue.arrayRemove([uid]),
+            });
+      }
+
+      // Delete the user document
+      await _firestore
+          .collection(AppConstants.usersCollection)
+          .doc(uid)
+          .delete();
+    } catch (e) {
+      throw 'Error deleting user: $e';
+    }
+  }
+
   Future<void> linkPatientToCaregiver(
     String caregiverId,
     String patientId,
@@ -230,8 +255,10 @@ class DatabaseService {
     int? limit,
   }) async {
     try {
-      print('DEBUG getActivityLogs: patientId=$patientId, startDate=$startDate, endDate=$endDate, limit=$limit');
-      
+      print(
+        'DEBUG getActivityLogs: patientId=$patientId, startDate=$startDate, endDate=$endDate, limit=$limit',
+      );
+
       Query query = _firestore
           .collection(AppConstants.activityLogsCollection)
           .where('patientId', isEqualTo: patientId)
@@ -253,12 +280,10 @@ class DatabaseService {
       final querySnapshot = await query.get();
       print('DEBUG: Query returned ${querySnapshot.docs.length} documents');
 
-      final logs = querySnapshot.docs
-          .map((doc) {
-            print('DEBUG: Processing doc ${doc.id}');
-            return ActivityLogModel.fromFirestore(doc);
-          })
-          .toList();
+      final logs = querySnapshot.docs.map((doc) {
+        print('DEBUG: Processing doc ${doc.id}');
+        return ActivityLogModel.fromFirestore(doc);
+      }).toList();
 
       print('DEBUG: Converted to ${logs.length} ActivityLogModel objects');
       return logs;
@@ -270,19 +295,21 @@ class DatabaseService {
   }
 
   // Simple method to get ALL summaries for a patient (no date filtering, no ordering)
-  Future<List<Map<String, dynamic>>> getAllSummariesForPatient(String patientId) async {
+  Future<List<Map<String, dynamic>>> getAllSummariesForPatient(
+    String patientId,
+  ) async {
     try {
       print('🔍 Fetching all summaries for patient: $patientId');
-      
+
       final querySnapshot = await _firestore
           .collection(AppConstants.activityLogsCollection)
           .where('patientId', isEqualTo: patientId)
           .get();
-      
+
       print('✅ Found ${querySnapshot.docs.length} activity logs');
-      
+
       final summaries = <Map<String, dynamic>>[];
-      
+
       for (var doc in querySnapshot.docs) {
         final data = doc.data();
         summaries.add({
@@ -293,7 +320,7 @@ class DatabaseService {
           'rawTranscript': data['rawTranscript'],
         });
       }
-      
+
       return summaries;
     } catch (e) {
       print('❌ Error fetching summaries: $e');
@@ -307,7 +334,7 @@ class DatabaseService {
       final querySnapshot = await _firestore
           .collection(AppConstants.activityLogsCollection)
           .get();
-      
+
       return querySnapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
@@ -376,8 +403,11 @@ class DatabaseService {
     try {
       final now = DateTime.now();
       // Start from midnight of (daysBack) days ago
-      final startDate = DateTime(now.year, now.month, now.day)
-          .subtract(Duration(days: daysBack));
+      final startDate = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(Duration(days: daysBack));
 
       print('═══════════════════════════════════════════════════════');
       print('DEBUG: FETCHING ACTIVITY LOGS BY DATE');
@@ -387,10 +417,7 @@ class DatabaseService {
       print('Current date: $now');
       print('Days back: $daysBack');
 
-      final logs = await getActivityLogs(
-        patientId,
-        startDate: startDate,
-      );
+      final logs = await getActivityLogs(patientId, startDate: startDate);
 
       print('\n📊 TOTAL LOGS FETCHED: ${logs.length}');
       print('═══════════════════════════════════════════════════════\n');
@@ -458,7 +485,6 @@ class DatabaseService {
   String _getDateKey(DateTime date) {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
-
 
   // ==================== STORAGE OPERATIONS ====================
 

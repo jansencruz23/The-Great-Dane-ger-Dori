@@ -470,6 +470,23 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 );
               },
             ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.edit, color: AppColors.primary),
+              title: const Text('Edit Patient Info'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _editPatient(patient);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: AppColors.error),
+              title: const Text('Delete Patient'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _deletePatient(patient);
+              },
+            ),
           ],
         ),
       ),
@@ -563,5 +580,154 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         );
       }
     }
+  }
+
+  void _editPatient(UserModel patient) {
+    final nameController = TextEditingController(text: patient.name);
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Patient Info'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Patient Name',
+                  prefixIcon: Icon(Icons.person),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter patient name';
+                  }
+                  if (value.length < 2) {
+                    return 'Name must be at least 2 characters';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Email: ${patient.email}',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+
+              final updatedPatient = patient.copyWith(
+                name: nameController.text.trim(),
+              );
+
+              try {
+                await _databaseService.updateUser(updatedPatient);
+
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  Helpers.showSnackBar(context, 'Patient updated successfully');
+                  _loadPatients();
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Helpers.showSnackBar(
+                    context,
+                    'Error updating patient: $e',
+                    isError: true,
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deletePatient(UserModel patient) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Patient'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to delete ${patient.name}?'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning, color: AppColors.error, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This will delete all known faces and activity logs for this patient. This action cannot be undone.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await _databaseService.deleteUser(patient.uid);
+
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  Helpers.showSnackBar(context, 'Patient deleted successfully');
+                  _loadPatients();
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                  Helpers.showSnackBar(
+                    context,
+                    'Error deleting patient: $e',
+                    isError: true,
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
   }
 }
