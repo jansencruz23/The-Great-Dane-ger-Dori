@@ -159,33 +159,17 @@ class _CaregiverDashboardState extends State<CaregiverDashboard>
                           color: AppColors.textPrimary,
                         ),
                       ),
-                      PopupMenuButton(
-                        icon: const Icon(
-                          Icons.more_vert,
-                          color: AppColors.textPrimary,
-                        ),
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                            value: 'logout',
-                            child: Row(
-                              children: [
-                                Icon(Icons.logout, color: AppColors.error),
-                                SizedBox(width: 8),
-                                Text('Logout'),
-                              ],
-                            ),
-                          ),
-                        ],
-                        onSelected: (value) async {
-                          if (value == 'logout') {
-                            await userProvider.logout();
-                            if (context.mounted) {
-                              Navigator.of(context).pushReplacement(
-                                MaterialPageRoute(
-                                  builder: (_) => const LoginScreen(),
-                                ),
-                              );
-                            }
+                      IconButton(
+                        icon: const Icon(Icons.logout, color: AppColors.error),
+                        tooltip: 'Logout',
+                        onPressed: () async {
+                          await userProvider.logout();
+                          if (context.mounted) {
+                            Navigator.of(context).pushReplacement(
+                              MaterialPageRoute(
+                                builder: (_) => const LoginScreen(),
+                              ),
+                            );
                           }
                         },
                       ),
@@ -270,7 +254,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard>
                       icon: Icons.face,
                       label: 'Known Faces',
                       value: '${_patients.length * 5}+',
-                      color: AppColors.secondary,
+                      color: AppColors.accent,
                     ),
                   ),
                 ],

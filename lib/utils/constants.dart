@@ -80,7 +80,7 @@ class AppStrings {
 
   // Patient Strings
   static const String patientHome = 'Welcome';
-  static const String startRecognition = 'Start Face Recognition';
+  static const String startRecognition = 'Start Remembering';
   static const String viewDailyRecap = 'View Daily Recap';
   static const String recognizing = 'Looking for familiar faces...';
   static const String noFaceDetected = 'No face detected';
