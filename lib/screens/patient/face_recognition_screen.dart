@@ -24,10 +24,8 @@ import '../../models/known_face_model.dart';
 import '../../models/activity_log_model.dart';
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
-import '../../widgets/face_detection_painter.dart';
-import '../../widgets/day_by_day_summary_widget.dart';
 
-import '../../widgets/face_guideline_painter.dart';
+import '../../widgets/day_by_day_summary_widget.dart';
 
 enum FacePose { center, left, right, up, down }
 
@@ -1129,25 +1127,6 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         ),
 
         // Face Guideline Overlay
-        CustomPaint(painter: FaceGuidelinePainter(), size: Size.infinite),
-
-        // Face detection overlay
-        if (_detectedFaces.isNotEmpty)
-          CustomPaint(
-            painter: FaceDetectionPainter(
-              faces: _detectedFaces.keys.toList(),
-              imageSize:
-                  MediaQuery.of(context).orientation == Orientation.landscape
-                  ? Size(
-                      _cameraController!.value.previewSize!.width,
-                      _cameraController!.value.previewSize!.height,
-                    )
-                  : Size(
-                      _cameraController!.value.previewSize!.height,
-                      _cameraController!.value.previewSize!.width,
-                    ),
-            ),
-          ),
 
         // AR overlays for recognized faces
         ..._detectedFaces.entries.map((entry) {

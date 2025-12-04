@@ -40,11 +40,6 @@ class FaceDetectionPainter extends CustomPainter {
 
       // Draw corner accents for better visibility
       _drawCornerAccents(canvas, rect, paint);
-
-      // Draw facial landmarks if available
-      if (face.landmarks.isNotEmpty) {
-        _drawLandmarks(canvas, face, scaleX, scaleY);
-      }
     }
   }
 
@@ -104,23 +99,6 @@ class FaceDetectionPainter extends CustomPainter {
       Offset(rect.right, rect.bottom - cornerLength),
       accentPaint,
     );
-  }
-
-  void _drawLandmarks(Canvas canvas, Face face, double scaleX, double scaleY) {
-    final landmarkPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..color = AppColors.accent;
-
-    for (final landmark in face.landmarks.values) {
-      if (landmark != null) {
-        final position = landmark.position;
-        canvas.drawCircle(
-          Offset(position.x * scaleX, position.y * scaleY),
-          3,
-          landmarkPaint,
-        );
-      }
-    }
   }
 
   @override

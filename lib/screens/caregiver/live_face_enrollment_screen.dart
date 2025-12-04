@@ -11,7 +11,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../main.dart' show cameras;
 import '../../utils/constants.dart';
 import '../../utils/helpers.dart';
-import '../../widgets/face_guideline_painter.dart';
 
 enum FacePose { center, left, right, up, down }
 
@@ -304,9 +303,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
           child: Center(child: CameraPreview(_cameraController!)),
         ),
 
-        // Pose guide overlay
-        _buildPoseGuideOverlay(),
-
         // Top instructions
         SafeArea(
           child: Padding(
@@ -371,16 +367,6 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildPoseGuideOverlay() {
-    // Draw a circle guide for the face
-    return CustomPaint(
-      painter: FaceGuidelinePainter(
-        color: _currentPose != null ? Colors.greenAccent : null,
-      ),
-      size: Size.infinite,
     );
   }
 
