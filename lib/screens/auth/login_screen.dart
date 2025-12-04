@@ -156,8 +156,9 @@ class _LoginScreenState extends State<LoginScreen>
                         child: Container(
                           width: 120,
                           height: 120,
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppColors.primary,
+                            color: Colors.white,
                             borderRadius: BorderRadius.circular(30),
                             boxShadow: [
                               BoxShadow(
@@ -167,10 +168,9 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                             ],
                           ),
-                          child: const Icon(
-                            Icons.face,
-                            size: 70,
-                            color: Colors.white,
+                          child: Image.asset(
+                            'web/icons/Dori_Logo.png',
+                            fit: BoxFit.contain,
                           ),
                         ),
                       ),
@@ -212,7 +212,7 @@ class _LoginScreenState extends State<LoginScreen>
                                   children: [
                                     // Title
                                     Text(
-                                      AppStrings.loginTitle,
+                                      'Dori',
                                       style: TextStyle(
                                         fontSize: 32,
                                         fontWeight: FontWeight.bold,
@@ -225,7 +225,7 @@ class _LoginScreenState extends State<LoginScreen>
                                     const SizedBox(height: 8),
 
                                     Text(
-                                      'Sign in to continue',
+                                      "'Wag mag-alala kung walang maalala",
                                       style: TextStyle(
                                         fontSize: 16,
                                         color: AppColors.textSecondary,

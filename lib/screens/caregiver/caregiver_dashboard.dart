@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -18,10 +19,13 @@ class CaregiverDashboard extends StatefulWidget {
   State<CaregiverDashboard> createState() => _CaregiverDashboardState();
 }
 
-class _CaregiverDashboardState extends State<CaregiverDashboard> {
+class _CaregiverDashboardState extends State<CaregiverDashboard>
+    with SingleTickerProviderStateMixin {
   final DatabaseService _databaseService = DatabaseService();
   List<UserModel> _patients = [];
   bool _isLoading = false;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
 
   final List<Color> _profileColors = [
     const Color(0xFF00A86B), // Jade Green (Base)
@@ -39,7 +43,21 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
+    );
+    _animationController.forward();
     _loadPatients();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPatients() async {
@@ -80,44 +98,113 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text(AppStrings.caregiverDashboard),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          PopupMenuButton(
-            icon: const Icon(Icons.more_vert),
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, color: AppColors.error),
-                    SizedBox(width: 8),
-                    Text('Logout'),
-                  ],
-                ),
+      body: Stack(
+        children: [
+          // 1. Jade Green Gradient Background
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFE0F2F1), // Very light cool green (Background)
+                  Color(0xFFB2DFDB), // Light Jade/Teal (Secondary)
+                  Color(0xFF00A86B), // Jade Green (Primary)
+                ],
               ),
-            ],
-            onSelected: (value) async {
-              if (value == 'logout') {
-                await userProvider.logout();
-                if (context.mounted) {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  );
-                }
-              }
-            },
+            ),
+          ),
+
+          // 2. Floating Neomorphic Quadrilaterals
+          _buildNeomorphicShape(top: 50, left: 30, size: 100, rotation: 0.2),
+          _buildNeomorphicShape(top: 150, right: 40, size: 140, rotation: -0.1),
+          _buildNeomorphicShape(
+            bottom: 100,
+            left: 20,
+            size: 180,
+            rotation: 0.15,
+          ),
+          _buildNeomorphicShape(
+            bottom: 200,
+            right: 30,
+            size: 120,
+            rotation: -0.2,
+          ),
+          _buildNeomorphicShape(top: 300, left: -20, size: 80, rotation: 0.3),
+          _buildNeomorphicShape(
+            bottom: 50,
+            right: -10,
+            size: 160,
+            rotation: -0.15,
+          ),
+
+          // 3. Main Content
+          SafeArea(
+            child: Column(
+              children: [
+                // Custom AppBar
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        AppStrings.caregiverDashboard,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      PopupMenuButton(
+                        icon: const Icon(
+                          Icons.more_vert,
+                          color: AppColors.textPrimary,
+                        ),
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'logout',
+                            child: Row(
+                              children: [
+                                Icon(Icons.logout, color: AppColors.error),
+                                SizedBox(width: 8),
+                                Text('Logout'),
+                              ],
+                            ),
+                          ),
+                        ],
+                        onSelected: (value) async {
+                          if (value == 'logout') {
+                            await userProvider.logout();
+                            if (context.mounted) {
+                              Navigator.of(context).pushReplacement(
+                                MaterialPageRoute(
+                                  builder: (_) => const LoginScreen(),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadPatients,
+                    child: _isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildContent(user),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadPatients,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildContent(user),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
@@ -139,84 +226,94 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   Widget _buildContent(UserModel user) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Welcome header
-          Text(
-            'Welcome, ${user.name}',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
+      physics: const AlwaysScrollableScrollPhysics(),
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Welcome header
+            Text(
+              'Welcome, ${user.name}',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
 
-          Text(
-            'Manage your patients and their memory assistance',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
-          ),
+            Text(
+              'Manage your patients and their memory assistance',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+            ),
 
-          const SizedBox(height: 32),
+            const SizedBox(height: 32),
 
-          // Statistics
-          if (_patients.isNotEmpty)
+            // Statistics
+            if (_patients.isNotEmpty)
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatCard(
+                      icon: Icons.people,
+                      label: 'Patients',
+                      value: _patients.length.toString(),
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildStatCard(
+                      icon: Icons.face,
+                      label: 'Known Faces',
+                      value: '${_patients.length * 5}+',
+                      color: AppColors.secondary,
+                    ),
+                  ),
+                ],
+              ),
+
+            const SizedBox(height: 32),
+
+            // Patients list
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.people,
-                    label: 'Patients',
-                    value: _patients.length.toString(),
-                    color: AppColors.primary,
+                Text(
+                  AppStrings.myPatients,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    icon: Icons.face,
-                    label: 'Known Faces',
-                    value: '${_patients.length * 5}+',
-                    color: AppColors.secondary,
+                if (_patients.isEmpty)
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.of(context)
+                          .push(
+                            MaterialPageRoute(
+                              builder: (_) => const PatientManagementScreen(),
+                            ),
+                          )
+                          .then((_) => _loadPatients());
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add First Patient'),
                   ),
-                ),
               ],
             ),
 
-          const SizedBox(height: 32),
+            const SizedBox(height: 16),
 
-          // Patients list
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                AppStrings.myPatients,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              if (_patients.isEmpty)
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.of(context)
-                        .push(
-                          MaterialPageRoute(
-                            builder: (_) => const PatientManagementScreen(),
-                          ),
-                        )
-                        .then((_) => _loadPatients());
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add First Patient'),
-                ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          if (_patients.isEmpty)
-            _buildEmptyState()
-          else
-            ..._patients.map((patient) => _buildPatientCard(patient)),
-        ],
+            if (_patients.isEmpty)
+              _buildEmptyState()
+            else
+              ..._patients.map((patient) => _buildPatientCard(patient)),
+          ],
+        ),
       ),
     );
   }
@@ -227,197 +324,234 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     required String value,
     required Color color,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(25),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.4),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.5)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 36),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 36),
+              const SizedBox(height: 12),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildEmptyState() {
-    return Container(
-      padding: const EdgeInsets.all(40),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.people_outline, size: 80, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          Text(
-            'No patients yet',
-            style: Theme.of(context).textTheme.titleLarge,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+        child: Container(
+          padding: const EdgeInsets.all(40),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.4),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.5)),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Add your first patient to start managing their memory assistance',
-            style: Theme.of(context).textTheme.bodyMedium,
-            textAlign: TextAlign.center,
+          child: Column(
+            children: [
+              Icon(
+                Icons.people_outline,
+                size: 80,
+                color: AppColors.textSecondary.withOpacity(0.5),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No patients yet',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(color: AppColors.textPrimary),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Add your first patient to start managing their memory assistance',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildPatientCard(UserModel patient) {
-    final backgroundColor = patient.profileColor != null
+    final baseColor = patient.profileColor != null
         ? Color(patient.profileColor!)
         : Colors.white;
 
-    // Calculate contrast color
-    final isDark = backgroundColor.computeLuminance() < 0.5;
+    // Calculate contrast color based on the base color
+    final isDark = baseColor.computeLuminance() < 0.5;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white70 : Colors.black54;
-    final iconColor = isDark ? Colors.white : AppColors.primary;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          ListTile(
-            contentPadding: const EdgeInsets.all(20),
-            leading: CircleAvatar(
-              radius: 30,
-              backgroundColor: Helpers.generateColorFromString(patient.name),
-              child: Text(
-                Helpers.getInitials(patient.name),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: baseColor.withOpacity(0.7),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.3),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
-            ),
-            title: Text(
-              patient.name,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: textColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            subtitle: Text(
-              patient.email,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: subTextColor),
-            ),
-            trailing: Icon(
-              Icons.arrow_forward_ios,
-              size: 16,
-              color: subTextColor,
-            ),
-            onTap: () {
-              _showPatientActions(patient);
-            },
+            ],
           ),
-          Divider(height: 1, color: subTextColor.withOpacity(0.2)),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ManageKnownFacesScreen(
-                            patientId: patient.uid,
-                            patientName: patient.name,
-                          ),
-                        ),
-                      );
-                    },
-                    icon: Icon(Icons.face, size: 18, color: textColor),
-                    label: Text('Faces', style: TextStyle(color: textColor)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: textColor,
-                      side: BorderSide(color: subTextColor.withOpacity(0.5)),
-                      backgroundColor: isDark
-                          ? Colors.white.withOpacity(0.1)
-                          : Colors.white.withOpacity(0.5),
+          child: Column(
+            children: [
+              ListTile(
+                contentPadding: const EdgeInsets.all(20),
+                leading: CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Helpers.generateColorFromString(
+                    patient.name,
+                  ),
+                  child: Text(
+                    Helpers.getInitials(patient.name),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ActivityHistoryScreen(
-                            patientId: patient.uid,
-                            patientName: patient.name,
-                          ),
+                title: Text(
+                  patient.name,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: textColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: Text(
+                  patient.email,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: subTextColor),
+                ),
+                trailing: Icon(
+                  Icons.arrow_forward_ios,
+                  size: 16,
+                  color: subTextColor,
+                ),
+                onTap: () {
+                  _showPatientActions(patient);
+                },
+              ),
+              Divider(height: 1, color: subTextColor.withOpacity(0.2)),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ManageKnownFacesScreen(
+                                patientId: patient.uid,
+                                patientName: patient.name,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: Icon(Icons.face, size: 18, color: textColor),
+                        label: Text(
+                          'Faces',
+                          style: TextStyle(color: textColor),
                         ),
-                      );
-                    },
-                    icon: Icon(Icons.history, size: 18, color: textColor),
-                    label: Text('Activity', style: TextStyle(color: textColor)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: textColor,
-                      side: BorderSide(color: subTextColor.withOpacity(0.5)),
-                      backgroundColor: isDark
-                          ? Colors.white.withOpacity(0.1)
-                          : Colors.white.withOpacity(0.5),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: textColor,
+                          side: BorderSide(
+                            color: subTextColor.withOpacity(0.5),
+                          ),
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ActivityHistoryScreen(
+                                patientId: patient.uid,
+                                patientName: patient.name,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: Icon(Icons.history, size: 18, color: textColor),
+                        label: Text(
+                          'Activity',
+                          style: TextStyle(color: textColor),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: textColor,
+                          side: BorderSide(
+                            color: subTextColor.withOpacity(0.5),
+                          ),
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () => _showColorPicker(patient),
+                      icon: Icon(Icons.color_lens, color: textColor),
+                      tooltip: 'Change Color',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.2),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => _showColorPicker(patient),
-                  icon: Icon(Icons.color_lens, color: textColor),
-                  tooltip: 'Change Color',
-                  style: IconButton.styleFrom(
-                    backgroundColor: isDark
-                        ? Colors.white.withOpacity(0.1)
-                        : Colors.white.withOpacity(0.5),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -425,10 +559,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   void _showPatientActions(UserModel patient) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -496,10 +632,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
   void _showColorPicker(UserModel patient) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -727,6 +865,53 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
             child: const Text('Delete'),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNeomorphicShape({
+    double? top,
+    double? bottom,
+    double? left,
+    double? right,
+    required double size,
+    required double rotation,
+  }) {
+    return Positioned(
+      top: top,
+      bottom: bottom,
+      left: left,
+      right: right,
+      child: Transform.rotate(
+        angle: rotation,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: AppColors.secondary.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.white.withOpacity(0.4),
+                offset: const Offset(-8, -8),
+                blurRadius: 16,
+              ),
+              BoxShadow(
+                color: AppColors.primary.withOpacity(0.2),
+                offset: const Offset(8, 8),
+                blurRadius: 16,
+              ),
+            ],
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.4),
+                Colors.white.withOpacity(0.1),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

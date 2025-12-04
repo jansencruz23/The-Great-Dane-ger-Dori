@@ -56,7 +56,7 @@ class AppConstants {
 }
 
 class AppStrings {
-  static const String appName = 'Dory';
+  static const String appName = 'Dori';
   static const String caregiverRole = 'caregiver';
   static const String patientRole = 'patient';
 

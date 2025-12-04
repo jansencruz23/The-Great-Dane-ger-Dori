@@ -428,13 +428,13 @@ class _LiveFaceEnrollmentScreenState extends State<LiveFaceEnrollmentScreen> {
       case FacePose.center:
         return 'Center';
       case FacePose.left:
-        return 'Left';
-      case FacePose.right:
         return 'Right';
+      case FacePose.right:
+        return 'Left';
       case FacePose.up:
-        return 'Up';
-      case FacePose.down:
         return 'Down';
+      case FacePose.down:
+        return 'Left';
     }
   }
 

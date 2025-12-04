@@ -210,7 +210,7 @@ class ScheduledSummaryServicse {
     await _notifications.show(
       999, // Test notification ID
       'Test Notification',
-      'This is a test notification from Dory',
+      'This is a test notification from Dori',
       const NotificationDetails(
         android: AndroidNotificationDetails(
           'test_channel',
