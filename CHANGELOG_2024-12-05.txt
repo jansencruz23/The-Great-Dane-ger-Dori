@@ -1,0 +1,220 @@
+================================================================================
+                    DORI APP - FEATURE UPDATES
+                       December 5, 2024
+================================================================================
+
+This document summarizes all the new features and improvements added to the
+Dori application during the development session on December 5, 2024.
+
+
+================================================================================
+1. VR MODE TOGGLE BUTTON (Reverted by User)
+================================================================================
+
+   Status: IMPLEMENTED BUT REVERTED
+   
+   • Added VR Mode button to the expandable floating action menu
+   • Purple gradient with glassmorphism styling
+   • VR panorama icon (Icons.vrpano_rounded)
+   • Stereoscopic side-by-side view for VR headset compatibility
+   • Exit VR button at top center
+   
+   Note: User chose to revert this feature.
+
+
+================================================================================
+2. COMPREHENSIVE README.md FOR GITHUB
+================================================================================
+
+   Status: IMPLEMENTED ✓
+   
+   Created a professional README.md including:
+   
+   • Project overview and purpose (helping dementia patients)
+   • Feature tables for both patients and caregivers
+   • Complete tech stack documentation
+   • Installation and setup instructions
+   • Project architecture diagram
+   • User flow descriptions
+   • Configuration options
+   • Contributing guidelines
+   • Team attribution (The Great Dane-ger team for GDG)
+
+
+================================================================================
+3. LOCATION TEXT UPDATE
+================================================================================
+
+   Status: IMPLEMENTED ✓
+   
+   File: lib/screens/patient/face_recognition_screen.dart
+   
+   • Changed location text from "Holy Angel University Foundation" 
+     to "Holy Angel University"
+
+
+================================================================================
+4. EMPATHETIC ENROLLMENT PROMPT
+================================================================================
+
+   Status: IMPLEMENTED ✓
+   
+   Files Modified:
+   • lib/screens/patient/face_recognition_screen.dart
+   • lib/widgets/enrollment_bubble_widget.dart
+   
+   Changes:
+   • Question changed from "Recognize this person?" 
+     to "How do you feel about this person?"
+   
+   • Response options changed from "Yes/No" 
+     to "I feel safe / I feel unsure"
+   
+   • Icon changed from person_add to heart (favorite) icon
+   
+   • Voice recognition updated to detect:
+     - "safe", "comfortable", "trust", "know" → Proceed with enrollment
+     - "unsure", "uncertain", "don't know", "not sure" → Skip/Block face
+
+
+================================================================================
+5. FACE BLOCKLIST FEATURE
+================================================================================
+
+   Status: IMPLEMENTED ✓
+   
+   File: lib/screens/patient/face_recognition_screen.dart
+   
+   Purpose: Prevent repeatedly prompting about faces the user feels unsure about
+   
+   Implementation:
+   • Added _blockedFaceEmbeddings list to store face embeddings
+   • When user says "unsure", the face embedding is saved to blocklist
+   • Before prompting enrollment, system checks if face matches any blocked face
+   • Uses cosine similarity with 0.7 threshold for matching
+   • Blocked faces silently skip the enrollment prompt
+   
+   Benefits:
+   • No more annoying repeated prompts for unfamiliar faces
+   • Respects patient's comfort level
+   • Embeddings stored in memory (session-based)
+
+
+================================================================================
+6. SMOOTH BUBBLE TRACKING
+================================================================================
+
+   Status: IMPLEMENTED ✓
+   
+   File: lib/widgets/enrollment_bubble_widget.dart
+   
+   Changes:
+   • Converted EnrollmentBubbleWidget from StatelessWidget to StatefulWidget
+   • Added lerp-based position smoothing (_smoothingFactor = 0.3)
+   • Bubble now smoothly follows face movement
+   • Position updates interpolated for fluid motion
+   
+   Technical Details:
+   • _smoothLeft and _smoothTop track smoothed position
+   • Lerp formula: newPos = oldPos + (factor * (target - oldPos))
+   • Factor of 0.3 provides responsive yet smooth following
+
+
+================================================================================
+7. AUTO-DISMISS WHEN FACE LEAVES
+================================================================================
+
+   Status: IMPLEMENTED ✓
+   
+   File: lib/screens/patient/face_recognition_screen.dart
+   
+   Behavior:
+   • During prompting mode, face detection continues running
+   • If no face detected for 3 consecutive frames → auto-cancel enrollment
+   • Bubble disappears automatically when person leaves camera view
+   
+   Modes Covered:
+   • EnrollmentMode.prompting
+   • EnrollmentMode.collectingName  
+   • EnrollmentMode.collectingRelationship
+
+
+================================================================================
+8. PERFORMANCE OPTIMIZATIONS
+================================================================================
+
+   Status: IMPLEMENTED ✓
+   
+   Files Modified:
+   • lib/screens/patient/face_recognition_screen.dart
+   • lib/widgets/enrollment_bubble_widget.dart
+   
+   Optimizations Applied:
+
+   A) Frame Skipping
+      • Face detection runs every 3rd frame during prompting (66% reduction)
+      • Added _promptingFrameCount counter
+   
+   B) Adaptive Frame Rate
+      • Normal recognition: 500ms delay (2 FPS) - heavy processing
+      • Prompting mode: 100ms delay (10 FPS) - smoother UI
+   
+   C) Smarter Face Loss Detection
+      • Added _noFaceFrameCount counter
+      • Requires 3 consecutive "no face" frames before canceling
+      • Prevents false positives from single frame failures
+   
+   D) Simplified Bubble Animation
+      • Removed unnecessary SingleTickerProviderStateMixin
+      • Removed redundant AnimatedPositioned widget
+      • Removed TweenAnimationBuilder overhead
+      • Using simple lerp smoothing only
+   
+   Performance Improvement Summary:
+   ┌────────────────────┬───────────────┬───────────────┐
+   │ Mode               │ Before        │ After         │
+   ├────────────────────┼───────────────┼───────────────┤
+   │ Recognition        │ 2 FPS         │ 2 FPS         │
+   │ Prompting          │ 2 FPS + heavy │ 10 FPS + lite │
+   │ Bubble Animation   │ 3 layers      │ 1 layer       │
+   └────────────────────┴───────────────┴───────────────┘
+
+
+================================================================================
+SUMMARY OF FILES MODIFIED
+================================================================================
+
+   1. lib/screens/patient/face_recognition_screen.dart
+      - Location text update
+      - Empathetic enrollment prompt
+      - Face blocklist implementation
+      - Face tracking during prompting
+      - Auto-dismiss functionality
+      - Performance optimizations
+   
+   2. lib/widgets/enrollment_bubble_widget.dart
+      - StatefulWidget conversion
+      - Smooth position tracking
+      - Performance optimizations
+   
+   3. lib/screens/patient/patient_home_screen.dart
+      - Removed unused import (helpers.dart) - later re-added by user
+   
+   4. README.md
+      - Complete rewrite with comprehensive documentation
+
+
+================================================================================
+DEVELOPER NOTES
+================================================================================
+
+   • All features are production-ready
+   • No breaking changes to existing functionality
+   • Backward compatible with existing database schema
+   • Face blocklist is session-based (resets on app restart)
+   • Consider persisting blocklist to SharedPreferences for permanence
+   
+
+================================================================================
+                         END OF CHANGELOG
+================================================================================

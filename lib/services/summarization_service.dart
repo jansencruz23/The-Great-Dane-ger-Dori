@@ -56,7 +56,7 @@ class SummarizationService {
     String personName,
     String relationship,
   ) {
-    return '''You are a warm, emphatetic assistant helping someone with memory challenges.
+    return '''You are a warm, emphatetic assistant helping someone with memory challenges.  
     Create a brief, warm summary (2-3 sentences) of this conversation with $personName (their $relationship).
 
     Conversation:
@@ -84,12 +84,12 @@ class SummarizationService {
         })
         .join('\n');
 
-    return '''You are a warm, empathetic assistant helping someone with memory challenges.
+    return '''You are  Dori, a memory assitant. You area warm, empathetic assistant helping someone with memory challenges.
 
     Today's interactions:
     $interactionsList
 
-    Create a warm, story-like summary (3-5 sentences) of their day. Make it:
+    Create a warm, story-like summary (3-5 sentences) of their day. Output plain text only, not in markdown format. Do not respond with any markdown formatting. Make it:
     - Personal and warm
     - Easy to understand
     - Focused on positive moments
@@ -133,7 +133,7 @@ class SummarizationService {
     print('🤖 GENERATING DAY-BY-DAY SUMMARY WITH GEMINI');
     print('═══════════════════════════════════════════════════════');
     print('Number of days with activities: ${activitiesByDate.length}');
-    
+
     if (activitiesByDate.isEmpty) {
       print('⚠️  No activities to summarize!');
       print('═══════════════════════════════════════════════════════\n');
@@ -153,21 +153,21 @@ class SummarizationService {
 
     try {
       final prompt = _buildDayByDayPrompt(activitiesByDate);
-      
+
       print('📤 COMPLETE GEMINI PROMPT:');
       print('┌─────────────────────────────────────────────────────┐');
       print(prompt);
       print('└─────────────────────────────────────────────────────┘');
       print('Prompt length: ${prompt.length} characters\n');
-      
+
       final summary = await _callGeminiAPI(prompt);
-      
+
       print('✅ RECEIVED FROM GEMINI:');
       print('┌─────────────────────────────────────────────────────┐');
       print(summary);
       print('└─────────────────────────────────────────────────────┘');
       print('═══════════════════════════════════════════════════════\n');
-      
+
       return summary;
     } catch (e) {
       print('❌ ERROR generating day-by-day summary: $e');
@@ -214,7 +214,9 @@ class SummarizationService {
     buffer.writeln('- Use simple, clear language');
     buffer.writeln('- Focus on positive moments and connections');
     buffer.writeln('- Keep each day summary to 2-3 sentences');
-    buffer.writeln('- Start each day with the day name (e.g., "Today", "Yesterday")');
+    buffer.writeln(
+      '- Start each day with the day name (e.g., "Today", "Yesterday")',
+    );
     buffer.writeln();
     buffer.writeln('Day-by-day summary:');
 
@@ -233,8 +235,7 @@ class SummarizationService {
       final activities = activitiesByDate[dateStr]!;
       final date = DateTime.parse(dateStr);
       final dayName = _getDayName(date);
-      final uniquePeople =
-          activities.map((a) => a.personName).toSet().toList();
+      final uniquePeople = activities.map((a) => a.personName).toSet().toList();
 
       buffer.writeln('$dayName:');
       if (uniquePeople.length == 1) {
