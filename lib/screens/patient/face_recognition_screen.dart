@@ -82,6 +82,9 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
   DateTime? _unknownFaceFirstSeen;
   static const _unknownFaceDebounceTime = Duration(seconds: 3);
 
+  // Blocklist for faces the user feels unsure about (store embeddings)
+  List<List<double>> _blockedFaceEmbeddings = [];
+
   // Recognition persistence (to prevent flickering on jitter)
   DateTime? _lastRecognitionTime;
   KnownFaceModel? _lastRecognizedFace;
@@ -112,6 +115,10 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
 
   // Floating action menu state
   bool _isMenuExpanded = false;
+
+  // Frame counters for performance optimization
+  int _promptingFrameCount = 0;
+  int _noFaceFrameCount = 0;
 
   @override
   void initState() {
@@ -274,15 +281,71 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
               _detectedFaces = results;
             });
 
+            // Extract embedding for unknown face (for blocklist comparison)
+            final unknownFaceEntry = results.entries
+                .where((entry) => entry.value == null)
+                .firstOrNull;
+            if (unknownFaceEntry != null && _unknownFaceEmbedding == null) {
+              // Extract embedding for blocklist check
+              final embedding = await _faceRecognitionService
+                  .extractFaceEmbeddingFromYUV(
+                    cameraImage,
+                    unknownFaceEntry.key,
+                    rotation,
+                  );
+              if (embedding != null) {
+                _unknownFaceEmbedding = embedding;
+                print('DEBUG: Extracted embedding for unknown face');
+              }
+            }
+
             // Handle face recognition
             await _handleFaceRecognition(results);
+          }
+        }
+        // During prompting/collecting modes - lighter tracking with reduced frequency
+        else if (_enrollmentMode == EnrollmentMode.prompting ||
+            _enrollmentMode == EnrollmentMode.collectingName ||
+            _enrollmentMode == EnrollmentMode.collectingRelationship) {
+          // Only detect faces every few frames to save CPU
+          _promptingFrameCount = (_promptingFrameCount + 1) % 3;
+
+          if (_promptingFrameCount == 0) {
+            final faces = await _faceRecognitionService.detectFaces(
+              cameraImage,
+              rotation,
+            );
+
+            if (mounted) {
+              if (faces.isEmpty) {
+                _noFaceFrameCount++;
+                // Only cancel if face has been gone for multiple frames
+                if (_noFaceFrameCount >= 3) {
+                  print('DEBUG: Face left frame, canceling enrollment');
+                  _noFaceFrameCount = 0;
+                  await _handleEnrollmentNo();
+                }
+              } else {
+                _noFaceFrameCount = 0;
+                // Update the tracked face position for smooth following
+                setState(() {
+                  _unknownFace = faces.first;
+                });
+              }
+            }
           }
         }
       } catch (e) {
         print('Error processing frame: $e');
       } finally {
-        // Add delay to throttle processing (reduced to 2fps for maximum smoothness)
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Faster frame rate during prompting for smoother UI
+        final delay =
+            (_enrollmentMode == EnrollmentMode.prompting ||
+                _enrollmentMode == EnrollmentMode.collectingName ||
+                _enrollmentMode == EnrollmentMode.collectingRelationship)
+            ? const Duration(milliseconds: 100) // 10fps for smooth bubble
+            : const Duration(milliseconds: 500); // 2fps for recognition
+        await Future.delayed(delay);
         _isProcessing = false;
       }
     });
@@ -402,9 +465,20 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         _unknownFaceEmbedding = null; // Will extract in next frame
         print('DEBUG: Started tracking unknown face');
       }
-      // If same unknown face has been present for debounce time, prompt enrollment
+      // If same unknown face has been present for debounce time, check blocklist and prompt enrollment
       else if (now.difference(_unknownFaceFirstSeen!) >=
           _unknownFaceDebounceTime) {
+        // Check if this face is in the blocklist first
+        if (_unknownFaceEmbedding != null &&
+            _isFaceBlocked(_unknownFaceEmbedding!)) {
+          print('DEBUG: Face is in blocklist, skipping enrollment prompt');
+          // Reset tracking so we don't keep checking this face
+          _unknownFace = null;
+          _unknownFaceEmbedding = null;
+          _unknownFaceFirstSeen = null;
+          return;
+        }
+
         print(
           'DEBUG: Unknown face persisted for ${_unknownFaceDebounceTime.inSeconds}s, prompting enrollment',
         );
@@ -420,6 +494,22 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
         await _stopRecording();
       }
     }
+  }
+
+  /// Checks if a face embedding matches any blocked face
+  bool _isFaceBlocked(List<double> embedding) {
+    if (_blockedFaceEmbeddings.isEmpty) return false;
+
+    const double blockThreshold = 0.7; // Same as recognition threshold
+
+    for (final blockedEmb in _blockedFaceEmbeddings) {
+      final similarity = Helpers.cosineSimilarity(embedding, blockedEmb);
+      if (similarity >= blockThreshold) {
+        print('DEBUG: Face matches blocklist with similarity $similarity');
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _startRecording(KnownFaceModel face) async {
@@ -511,13 +601,13 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
     setState(() {
       _enrollmentMode = EnrollmentMode.prompting;
       _currentEnrollmentStep = EnrollmentStep.promptEnrollment;
-      _enrollmentPromptText = 'Would you like to enroll this face?';
-      _enrollmentPromptSubtext = 'Say "Yes" or "No"';
+      _enrollmentPromptText = 'How do you feel about this person?';
+      _enrollmentPromptSubtext = 'Say "I feel safe" or "I feel unsure"';
       _isListeningForEnrollmentPrompt = true;
       _voiceInputBuffer = '';
     });
 
-    // Start voice listening for yes/no response
+    // Start voice listening for safe/unsure response
     try {
       await _speechService.startListening(
         onResult: (text) {
@@ -528,21 +618,22 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
               _voiceInputBuffer.contains('stop') ||
               _voiceInputBuffer.contains('nevermind') ||
               _voiceInputBuffer.contains('never mind')) {
-            _handleEnrollmentNo(); // Cancel is same as saying "no"
+            _handleEnrollmentNo(); // Cancel is same as feeling unsure
             return;
           }
 
-          // Check for yes/no responses
-          if (_voiceInputBuffer.contains('yes') ||
-              _voiceInputBuffer.contains('yeah') ||
-              _voiceInputBuffer.contains('yep') ||
-              _voiceInputBuffer.contains('sure') ||
-              _voiceInputBuffer.contains('okay') ||
-              _voiceInputBuffer.contains('ok')) {
+          // Check for safe/unsure responses
+          if (_voiceInputBuffer.contains('safe') ||
+              _voiceInputBuffer.contains('yes') ||
+              _voiceInputBuffer.contains('comfortable') ||
+              _voiceInputBuffer.contains('trust') ||
+              _voiceInputBuffer.contains('know')) {
             _handleEnrollmentYes();
-          } else if (_voiceInputBuffer.contains('no') ||
-              _voiceInputBuffer.contains('nope') ||
-              _voiceInputBuffer.contains('nah')) {
+          } else if (_voiceInputBuffer.contains('unsure') ||
+              _voiceInputBuffer.contains('no') ||
+              _voiceInputBuffer.contains('uncertain') ||
+              _voiceInputBuffer.contains("don't know") ||
+              _voiceInputBuffer.contains('not sure')) {
             _handleEnrollmentNo();
           }
         },
@@ -581,12 +672,21 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
       print('Error stopping voice: $e');
     }
 
+    // Add the unknown face embedding to blocklist so it won't be detected again
+    if (_unknownFaceEmbedding != null) {
+      _blockedFaceEmbeddings.add(List.from(_unknownFaceEmbedding!));
+      print(
+        'DEBUG: Added face to blocklist. Total blocked: ${_blockedFaceEmbeddings.length}',
+      );
+    }
+
     setState(() {
       _enrollmentMode = EnrollmentMode.normal;
       _currentEnrollmentStep = null;
       _isListeningForEnrollmentPrompt = false;
       _voiceInputBuffer = '';
       _unknownFace = null;
+      _unknownFaceEmbedding = null;
       _unknownFaceFirstSeen = null;
     });
   }
@@ -1306,7 +1406,7 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      'Holy Angel University Foundation',
+                      'Holy Angel University',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.9),
                         fontSize: 14,
@@ -1528,7 +1628,6 @@ class _FaceRecognitionScreenState extends State<FaceRecognitionScreen> {
               ),
 
               // Main Menu Toggle Button
-
               Material(
                 color: Colors.transparent,
                 child: InkWell(

@@ -5,7 +5,7 @@ import '../widgets/ar_overlay_widget.dart';
 
 enum EnrollmentStep { promptEnrollment, collectingName, collectingRelationship }
 
-class EnrollmentBubbleWidget extends StatelessWidget {
+class EnrollmentBubbleWidget extends StatefulWidget {
   final Face face;
   final Size imageSize;
   final EnrollmentStep step;
@@ -30,19 +30,83 @@ class EnrollmentBubbleWidget extends StatelessWidget {
   });
 
   @override
+  State<EnrollmentBubbleWidget> createState() => _EnrollmentBubbleWidgetState();
+}
+
+class _EnrollmentBubbleWidgetState extends State<EnrollmentBubbleWidget> {
+  // Smoothed position values
+  double _smoothLeft = 0;
+  double _smoothTop = 0;
+  bool _isInitialized = false;
+
+  // Smooth animation parameters
+  static const double _smoothingFactor = 0.3; // Higher = faster response
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didUpdateWidget(EnrollmentBubbleWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Trigger smooth update when face position changes
+    if (oldWidget.face.boundingBox != widget.face.boundingBox) {
+      _updateSmoothPosition();
+    }
+  }
+
+  void _updateSmoothPosition() {
+    final screenSize = MediaQuery.of(context).size;
+    final scaleX = screenSize.width / widget.imageSize.width;
+    final scaleY = screenSize.height / widget.imageSize.height;
+    final rect = widget.face.boundingBox;
+    const double width = 120;
+
+    // Calculate target position
+    double targetLeft = (rect.right * scaleX) + 15;
+    double targetTop = (rect.top * scaleY);
+
+    // Check if there's enough space on the right
+    if (targetLeft + width > screenSize.width) {
+      targetLeft = (rect.left * scaleX) - width - 15;
+    }
+
+    // Clamp values
+    targetLeft = targetLeft.clamp(10.0, screenSize.width - width - 10);
+    targetTop = targetTop.clamp(60.0, screenSize.height - 100);
+
+    // Apply smoothing using lerp
+    if (_isInitialized) {
+      setState(() {
+        _smoothLeft =
+            _smoothLeft + (_smoothingFactor * (targetLeft - _smoothLeft));
+        _smoothTop = _smoothTop + (_smoothingFactor * (targetTop - _smoothTop));
+      });
+    } else {
+      // First frame - set directly
+      setState(() {
+        _smoothLeft = targetLeft;
+        _smoothTop = targetTop;
+        _isInitialized = true;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final isLandscape = screenSize.width > screenSize.height;
 
     // Convert face bounding box to screen coordinates
-    final scaleX = screenSize.width / imageSize.width;
-    final scaleY = screenSize.height / imageSize.height;
+    final scaleX = screenSize.width / widget.imageSize.width;
+    final scaleY = screenSize.height / widget.imageSize.height;
 
-    final rect = face.boundingBox;
+    final rect = widget.face.boundingBox;
 
     // Calculate position relative to face - TINY bubble
-    double left;
-    double top;
+    double targetLeft;
+    double targetTop;
     double width = 120; // Much smaller fixed width
 
     ArrowDirection arrowDirection;
@@ -50,37 +114,52 @@ class EnrollmentBubbleWidget extends StatelessWidget {
 
     if (isLandscape) {
       // Landscape: Position to the RIGHT of the face
-      left = (rect.right * scaleX) + 15;
-      top = (rect.top * scaleY);
+      targetLeft = (rect.right * scaleX) + 15;
+      targetTop = (rect.top * scaleY);
       arrowDirection = ArrowDirection.left;
       arrowOffset = (rect.height * scaleY) / 2;
 
       // Check if there's enough space on the right
-      if (left + width > screenSize.width) {
+      if (targetLeft + width > screenSize.width) {
         // Position to the LEFT if no space on right
-        left = (rect.left * scaleX) - width - 15;
+        targetLeft = (rect.left * scaleX) - width - 15;
         arrowDirection = ArrowDirection.right;
       }
     } else {
       // Portrait: Position to the RIGHT of the face (not below)
-      left = (rect.right * scaleX) + 15;
-      top = (rect.top * scaleY);
+      targetLeft = (rect.right * scaleX) + 15;
+      targetTop = (rect.top * scaleY);
       arrowDirection = ArrowDirection.left;
       arrowOffset = (rect.height * scaleY) / 2;
 
       // Check if there's enough space on the right
-      if (left + width > screenSize.width) {
+      if (targetLeft + width > screenSize.width) {
         // Position to the LEFT if no space on right
-        left = (rect.left * scaleX) - width - 15;
+        targetLeft = (rect.left * scaleX) - width - 15;
         arrowDirection = ArrowDirection.right;
       }
     }
 
-    return AnimatedPositioned(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-      left: left.clamp(10.0, screenSize.width - width - 10),
-      top: top.clamp(60.0, screenSize.height - 100),
+    // Clamp values
+    targetLeft = targetLeft.clamp(10.0, screenSize.width - width - 10);
+    targetTop = targetTop.clamp(60.0, screenSize.height - 100);
+
+    // Initialize or update smooth position
+    if (!_isInitialized) {
+      _smoothLeft = targetLeft;
+      _smoothTop = targetTop;
+      _isInitialized = true;
+    } else {
+      // Lerp towards target for smooth following
+      _smoothLeft =
+          _smoothLeft + (_smoothingFactor * (targetLeft - _smoothLeft));
+      _smoothTop = _smoothTop + (_smoothingFactor * (targetTop - _smoothTop));
+    }
+
+    // Use simple Positioned - lerp already provides smoothing
+    return Positioned(
+      left: _smoothLeft,
+      top: _smoothTop,
       child: SizedBox(
         width: width,
         child: _buildBubbleWithArrow(context, arrowDirection, arrowOffset),
@@ -130,7 +209,7 @@ class EnrollmentBubbleWidget extends StatelessWidget {
   }
 
   Widget _buildStepContent(BuildContext context) {
-    switch (step) {
+    switch (widget.step) {
       case EnrollmentStep.promptEnrollment:
         return _buildPromptContent(context);
       case EnrollmentStep.collectingName:
@@ -148,10 +227,10 @@ class EnrollmentBubbleWidget extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.person_add, size: 14, color: Colors.white),
+            Icon(Icons.favorite, size: 14, color: Colors.white),
             const SizedBox(width: 4),
             Text(
-              'Recognize this',
+              'How do you',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 12,
@@ -161,14 +240,22 @@ class EnrollmentBubbleWidget extends StatelessWidget {
           ],
         ),
         Text(
-          'person?',
+          'feel about',
           style: TextStyle(
             color: Colors.white,
             fontSize: 12,
             fontWeight: FontWeight.bold,
           ),
         ),
-        if (isListening) ...[
+        Text(
+          'this person?',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        if (widget.isListening) ...[
           const SizedBox(height: 3),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -176,7 +263,7 @@ class EnrollmentBubbleWidget extends StatelessWidget {
               Icon(Icons.mic, color: Colors.red[300], size: 10),
               const SizedBox(width: 3),
               Text(
-                'Yes/No',
+                'Safe/Unsure',
                 style: TextStyle(
                   color: Colors.white70,
                   fontSize: 9,
@@ -186,10 +273,10 @@ class EnrollmentBubbleWidget extends StatelessWidget {
             ],
           ),
         ],
-        if (voiceBuffer != null && voiceBuffer!.isNotEmpty) ...[
+        if (widget.voiceBuffer != null && widget.voiceBuffer!.isNotEmpty) ...[
           const SizedBox(height: 2),
           Text(
-            '"$voiceBuffer"',
+            '"${widget.voiceBuffer}"',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 9,
@@ -217,7 +304,7 @@ class EnrollmentBubbleWidget extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
-        if (isListening) ...[
+        if (widget.isListening) ...[
           const SizedBox(height: 3),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -250,15 +337,17 @@ class EnrollmentBubbleWidget extends StatelessWidget {
             ),
           ),
           child: Text(
-            (voiceBuffer != null && voiceBuffer!.isNotEmpty)
-                ? voiceBuffer!
+            (widget.voiceBuffer != null && widget.voiceBuffer!.isNotEmpty)
+                ? widget.voiceBuffer!
                 : 'Listening...',
             style: TextStyle(
-              color: (voiceBuffer != null && voiceBuffer!.isNotEmpty)
+              color:
+                  (widget.voiceBuffer != null && widget.voiceBuffer!.isNotEmpty)
                   ? Colors.white
                   : Colors.white.withOpacity(0.4), // Dimmer placeholder
               fontSize: 10,
-              fontStyle: (voiceBuffer == null || voiceBuffer!.isEmpty)
+              fontStyle:
+                  (widget.voiceBuffer == null || widget.voiceBuffer!.isEmpty)
                   ? FontStyle.italic
                   : FontStyle.normal,
             ),
